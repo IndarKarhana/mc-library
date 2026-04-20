@@ -2,8 +2,16 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub const SUPPORTED_SCHEMA_VERSION: &str = "0.1";
+
+fn default_schema_version() -> String {
+    SUPPORTED_SCHEMA_VERSION.to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SimulationSpec {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
     pub name: String,
     pub version: String,
     pub parameters: Vec<ParameterSpec>,
@@ -82,11 +90,29 @@ pub struct ReductionSpec {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Expr {
-    Literal { value: f64 },
-    ParameterRef { value: String },
-    StateRef { value: String },
-    RandomRef { value: String },
-    UnaryOp { op: String, arg: Box<Expr> },
-    BinaryOp { op: String, lhs: Box<Expr>, rhs: Box<Expr> },
-    Call { fn_name: String, args: Vec<Expr> },
+    Literal {
+        value: f64,
+    },
+    ParameterRef {
+        value: String,
+    },
+    StateRef {
+        value: String,
+    },
+    RandomRef {
+        value: String,
+    },
+    UnaryOp {
+        op: String,
+        arg: Box<Expr>,
+    },
+    BinaryOp {
+        op: String,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Call {
+        fn_name: String,
+        args: Vec<Expr>,
+    },
 }

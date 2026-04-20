@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use mc_schema::{
-    validate_simulation_spec, AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec, RandomVarSpec,
-    ReductionSpec, SimulationSpec, StateUpdate, StateVarSpec, StepSpec,
+    validate_simulation_spec, AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec,
+    RandomVarSpec, ReductionSpec, SimulationSpec, StateUpdate, StateVarSpec, StepSpec,
 };
 
 fn valid_spec() -> SimulationSpec {
@@ -29,6 +29,7 @@ fn valid_spec() -> SimulationSpec {
     );
 
     SimulationSpec {
+        schema_version: "0.1".to_string(),
         name: "test".to_string(),
         version: "0.1.0".to_string(),
         parameters: vec![ParameterSpec {
@@ -77,7 +78,10 @@ fn valid_spec() -> SimulationSpec {
 #[test]
 fn valid_spec_has_no_errors() {
     let diagnostics = validate_simulation_spec(&valid_spec());
-    assert!(diagnostics.is_empty(), "expected no diagnostics, got: {diagnostics:?}");
+    assert!(
+        diagnostics.is_empty(),
+        "expected no diagnostics, got: {diagnostics:?}"
+    );
 }
 
 #[test]
@@ -119,4 +123,15 @@ fn unknown_param_reference_in_state_init_returns_error() {
 
     let diagnostics = validate_simulation_spec(&spec);
     assert!(diagnostics.iter().any(|d| d.code == "E_PARAMETER_UNKNOWN"));
+}
+
+#[test]
+fn unsupported_schema_version_returns_error() {
+    let mut spec = valid_spec();
+    spec.schema_version = "2.0".to_string();
+
+    let diagnostics = validate_simulation_spec(&spec);
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.code == "E_SCHEMA_VERSION_UNSUPPORTED"));
 }

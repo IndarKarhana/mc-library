@@ -1,0 +1,44 @@
+{
+  "generated_at_unix_ms": 1776672624699,
+  "results": [
+    {
+      "benchmark_name": "schema_validation",
+      "benchmark_version": "0.1",
+      "implementation": "mc-schema::validate_simulation_spec",
+      "backend": "cpu_native",
+      "planner_mode": "n/a",
+      "iterations": 10000,
+      "total_runtime_ms": 76.551625,
+      "per_iteration_us": 7.6551625,
+      "throughput_per_sec": 130630.79980340065,
+      "metric_name": null,
+      "metric_value": null
+    },
+    {
+      "benchmark_name": "planner_overhead_auto",
+      "benchmark_version": "0.1",
+      "implementation": "mc-core::plan_execution",
+      "backend": "planner",
+      "planner_mode": "balanced",
+      "iterations": 10000,
+      "total_runtime_ms": 3.821958,
+      "per_iteration_us": 0.38219580000000003,
+      "throughput_per_sec": 2616459.940166794,
+      "metric_name": null,
+      "metric_value": null
+    },
+    {
+      "benchmark_name": "planner_choice_accuracy",
+      "benchmark_version": "0.1",
+      "implementation": "mc-core::plan_execution",
+      "backend": "planner",
+      "planner_mode": "balanced",
+      "iterations": 4,
+      "total_runtime_ms": 0.002875,
+      "per_iteration_us": 0.71875,
+      "throughput_per_sec": 1391304.347826087,
+      "metric_name": "accuracy_pct",
+      "metric_value": 100.0
+    }
+  ]
+}

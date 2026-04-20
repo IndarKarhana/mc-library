@@ -14,21 +14,21 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Create architecture, schema, planner, backend contract, and benchmark docs.
 - `done` Establish repository engineering rules and development workflow.
 - `done` Initialize production-grade project scaffolding with tests-first conventions.
-- `blocked` Run Rust test/lint pipeline in this environment until Rust toolchain (`cargo`) is available.
+- `done` Install Rust toolchain (`cargo` and `rustc`) and run baseline test pipeline.
 
 ## Phase 1: Schema and Validation Core
 
 - `done` Build `mc-schema` crate with typed schema objects.
-- `in-progress` Build schema validator with structured diagnostics.
-- `todo` Add schema serialization round-trip tests.
-- `todo` Add compatibility/versioning checks for schema evolution.
+- `done` Build schema validator with structured diagnostics.
+- `done` Add schema serialization round-trip tests.
+- `done` Add compatibility/versioning checks for schema evolution.
 
 ## Phase 2: Planner Skeleton
 
-- `todo` Build planner interfaces and initial normalization pipeline.
-- `todo` Implement feature extraction from `SimulationSpec`.
-- `todo` Add backend feasibility and heuristic selection stubs.
-- `todo` Emit `ExecutionPlan` and explainability report skeleton.
+- `done` Build planner interfaces and initial normalization pipeline.
+- `done` Implement feature extraction from `SimulationSpec`.
+- `done` Add backend feasibility and heuristic selection stubs.
+- `done` Emit `ExecutionPlan` and explainability report skeleton.
 
 ## Phase 3: CPU Runtime (Reference Backend)
 
@@ -53,10 +53,10 @@ This roadmap is a living document and must be updated with every meaningful scop
 
 ## Phase 6: Benchmarks and Tuning
 
-- `todo` Implement benchmark harness and result schema.
-- `todo` Add baseline comparisons against NumPy / Numba / JAX / CuPy where relevant.
-- `todo` Track planner decision quality and cost-model error.
-- `todo` Define performance gates and regression thresholds.
+- `done` Implement benchmark harness and result schema.
+- `in-progress` Add baseline comparisons against NumPy / Numba / JAX / CuPy where relevant.
+- `done` Track planner decision quality via planner-choice accuracy benchmark.
+- `done` Define performance gates and regression thresholds.
 
 ## Ongoing Engineering Quality Track
 

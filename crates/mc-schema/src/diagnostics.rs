@@ -17,7 +17,11 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn error(code: impl Into<String>, message: impl Into<String>, location: impl Into<String>) -> Self {
+    pub fn error(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        location: impl Into<String>,
+    ) -> Self {
         Self {
             code: code.into(),
             severity: Severity::Error,

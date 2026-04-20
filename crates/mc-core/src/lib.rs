@@ -1,18 +1,9 @@
 //! Core runtime interfaces.
 
-use serde::{Deserialize, Serialize};
+pub mod planner;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ExecutionPlan {
-    pub backend: String,
-    pub planner_mode: String,
-}
-
-impl ExecutionPlan {
-    pub fn new(backend: impl Into<String>, planner_mode: impl Into<String>) -> Self {
-        Self {
-            backend: backend.into(),
-            planner_mode: planner_mode.into(),
-        }
-    }
-}
+pub use planner::{
+    extract_features, normalize_run_config, plan_execution, BackendDecisionReport, BackendId,
+    BackendPreference, BackendSupportReport, ExecutionPlan, FeatureSummary, NormalizedRunConfig,
+    PlannerError, PlannerMode, RejectedBackend, RunConfig, SupportLevel,
+};

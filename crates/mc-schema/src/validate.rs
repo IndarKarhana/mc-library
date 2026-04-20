@@ -1,17 +1,28 @@
 use std::collections::{BTreeSet, HashSet};
 
-use crate::{Diagnostic, Expr, SimulationSpec};
+use crate::{check_schema_compatibility, Diagnostic, Expr, SimulationSpec};
 
 pub fn validate_simulation_spec(spec: &SimulationSpec) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     let parameter_names: HashSet<&str> = spec.parameters.iter().map(|p| p.name.as_str()).collect();
-    let state_names: HashSet<&str> = spec.state_variables.iter().map(|s| s.name.as_str()).collect();
-    let random_names: HashSet<&str> = spec.random_variables.iter().map(|r| r.name.as_str()).collect();
-    let observation_names: HashSet<&str> = spec.observations.iter().map(|o| o.name.as_str()).collect();
+    let state_names: HashSet<&str> = spec
+        .state_variables
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let random_names: HashSet<&str> = spec
+        .random_variables
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect();
+    let observation_names: HashSet<&str> =
+        spec.observations.iter().map(|o| o.name.as_str()).collect();
     let axis_names: HashSet<&str> = spec.axes.keys().map(String::as_str).collect();
 
+    diagnostics.extend(check_schema_version(spec));
     diagnostics.extend(check_duplicate_parameters(spec));
+    diagnostics.extend(check_duplicate_declared_names(spec));
     diagnostics.extend(check_axis_consistency(spec));
     diagnostics.extend(check_random_var_axes(spec, &axis_names));
     diagnostics.extend(check_step_targets(spec, &state_names));
@@ -31,6 +42,25 @@ pub fn validate_simulation_spec(spec: &SimulationSpec) -> Vec<Diagnostic> {
     diagnostics
 }
 
+fn check_schema_version(spec: &SimulationSpec) -> Vec<Diagnostic> {
+    let report = check_schema_compatibility(&spec.schema_version);
+    if report.supported {
+        return Vec::new();
+    }
+
+    vec![Diagnostic::error(
+        "E_SCHEMA_VERSION_UNSUPPORTED",
+        format!(
+            "schema version '{}' is not supported: {}",
+            report.found_version,
+            report
+                .reason
+                .unwrap_or_else(|| "unknown compatibility issue".to_string())
+        ),
+        "schema_version",
+    )]
+}
+
 fn check_duplicate_parameters(spec: &SimulationSpec) -> Vec<Diagnostic> {
     let mut seen = BTreeSet::new();
     let mut diagnostics = Vec::new();
@@ -41,6 +71,49 @@ fn check_duplicate_parameters(spec: &SimulationSpec) -> Vec<Diagnostic> {
                 "E_DUP_PARAMETER",
                 format!("duplicate parameter '{}' found", param.name),
                 format!("parameters[{idx}].name"),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn check_duplicate_declared_names(spec: &SimulationSpec) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    diagnostics.extend(check_duplicate_names(
+        "E_DUP_RANDOM",
+        spec.random_variables.iter().map(|v| v.name.as_str()),
+        "random_variables",
+    ));
+    diagnostics.extend(check_duplicate_names(
+        "E_DUP_STATE",
+        spec.state_variables.iter().map(|v| v.name.as_str()),
+        "state_variables",
+    ));
+    diagnostics.extend(check_duplicate_names(
+        "E_DUP_OBSERVATION",
+        spec.observations.iter().map(|v| v.name.as_str()),
+        "observations",
+    ));
+
+    diagnostics
+}
+
+fn check_duplicate_names<'a>(
+    code: &str,
+    names: impl Iterator<Item = &'a str>,
+    location_prefix: &str,
+) -> Vec<Diagnostic> {
+    let mut seen = BTreeSet::new();
+    let mut diagnostics = Vec::new();
+
+    for (idx, name) in names.enumerate() {
+        if !seen.insert(name) {
+            diagnostics.push(Diagnostic::error(
+                code,
+                format!("duplicate declaration '{}' found", name),
+                format!("{location_prefix}[{idx}].name"),
             ));
         }
     }
@@ -75,7 +148,10 @@ fn check_random_var_axes(spec: &SimulationSpec, axis_names: &HashSet<&str>) -> V
             if !axis_names.contains(axis.as_str()) {
                 diagnostics.push(Diagnostic::error(
                     "E_AXIS_UNKNOWN",
-                    format!("random variable '{}' references unknown axis '{}'", rv.name, axis),
+                    format!(
+                        "random variable '{}' references unknown axis '{}'",
+                        rv.name, axis
+                    ),
                     format!("random_variables[{rv_idx}].axes[{axis_idx}]"),
                 ));
             }
@@ -92,7 +168,10 @@ fn check_step_targets(spec: &SimulationSpec, state_names: &HashSet<&str>) -> Vec
         if !spec.axes.contains_key(&step.axis) {
             diagnostics.push(Diagnostic::error(
                 "E_AXIS_UNKNOWN",
-                format!("step '{}' references unknown axis '{}'", step.name, step.axis),
+                format!(
+                    "step '{}' references unknown axis '{}'",
+                    step.name, step.axis
+                ),
                 format!("steps[{step_idx}].axis"),
             ));
         }
