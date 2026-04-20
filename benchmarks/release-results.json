@@ -1,5 +1,5 @@
 {
-  "generated_at_unix_ms": 1776679494880,
+  "generated_at_unix_ms": 1776679976458,
   "results": [
     {
       "benchmark_name": "schema_validation",
@@ -8,9 +8,9 @@
       "backend": "cpu_native",
       "planner_mode": "n/a",
       "iterations": 10000,
-      "total_runtime_ms": 7.483708,
-      "per_iteration_us": 0.7483708,
-      "throughput_per_sec": 1336235.9942424262,
+      "total_runtime_ms": 7.359083,
+      "per_iteration_us": 0.7359083,
+      "throughput_per_sec": 1358864.9564082916,
       "metric_name": null,
       "metric_value": null
     },
@@ -21,9 +21,9 @@
       "backend": "planner",
       "planner_mode": "balanced",
       "iterations": 10000,
-      "total_runtime_ms": 0.988875,
-      "per_iteration_us": 0.0988875,
-      "throughput_per_sec": 10112501.580078373,
+      "total_runtime_ms": 0.941458,
+      "per_iteration_us": 0.0941458,
+      "throughput_per_sec": 10621822.747270722,
       "metric_name": null,
       "metric_value": null
     },
@@ -47,9 +47,9 @@
       "backend": "cpu_native",
       "planner_mode": "n/a",
       "iterations": 3,
-      "total_runtime_ms": 1.7255420000000004,
-      "per_iteration_us": 575.1806666666668,
-      "throughput_per_sec": 173858416.6598089,
+      "total_runtime_ms": 1.7814580000000002,
+      "per_iteration_us": 593.8193333333334,
+      "throughput_per_sec": 168401388.0765081,
       "metric_name": "price_estimate",
       "metric_value": 9.389667479789393
     },
@@ -60,9 +60,9 @@
       "backend": "cpu_external",
       "planner_mode": "n/a",
       "iterations": 3,
-      "total_runtime_ms": 337.1144580305554,
-      "per_iteration_us": 112371.48601018514,
-      "throughput_per_sec": 889905.4693548877,
+      "total_runtime_ms": 290.47237400664017,
+      "per_iteration_us": 96824.12466888006,
+      "throughput_per_sec": 1032800.4548657767,
       "metric_name": "price_estimate",
       "metric_value": 9.486908967640364
     },
@@ -73,9 +73,9 @@
       "backend": "cpu_external",
       "planner_mode": "n/a",
       "iterations": 3,
-      "total_runtime_ms": 668.6055840109475,
-      "per_iteration_us": 222868.52800364915,
-      "throughput_per_sec": 448695.0261472658,
+      "total_runtime_ms": 688.5322500020266,
+      "per_iteration_us": 229510.75000067553,
+      "throughput_per_sec": 435709.43844550056,
       "metric_name": "price_estimate",
       "metric_value": 9.374553860753096
     },

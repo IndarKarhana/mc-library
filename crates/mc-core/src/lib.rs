@@ -1,8 +1,13 @@
 //! Core runtime interfaces.
 
+pub mod backend;
 pub mod planner;
 pub mod runtime;
 
+pub use backend::{
+    BackendError, BackendExecutionInput, BackendInfo, CompiledArtifact, CostEstimate,
+    CpuNativeBackend, DeviceInfo, ReproSupport, RunOutput, RuntimeBackend, SupportReport,
+};
 pub use planner::{
     extract_features, normalize_run_config, plan_execution, BackendDecisionReport, BackendId,
     BackendPreference, BackendSupportReport, ExecutionPlan, FeatureSummary, NormalizedRunConfig,

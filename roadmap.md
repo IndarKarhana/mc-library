@@ -32,7 +32,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 
 ## Phase 3: CPU Runtime (Reference Backend)
 
-- `todo` Implement `cpu_native` backend contract.
+- `done` Implement `cpu_native` backend contract.
 - `done` Add deterministic RNG stream mapping.
 - `done` Implement baseline execution loop for path/step simulation (European call workload).
 - `done` Implement baseline reductions (mean and standard error for payoff).

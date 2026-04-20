@@ -3,8 +3,9 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mc_core::{
-    european_call_price_mc_cpu, plan_execution, BackendId, BackendPreference, BackendSupportReport,
-    EuropeanCallConfig, PlannerMode, RunConfig,
+    plan_execution, BackendDecisionReport, BackendExecutionInput, BackendId, BackendPreference,
+    BackendSupportReport, CpuNativeBackend, EuropeanCallConfig, ExecutionPlan, FeatureSummary,
+    PlannerMode, RejectedBackend, RunConfig, RuntimeBackend,
 };
 use mc_schema::{
     validate_simulation_spec, AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec,
@@ -303,6 +304,33 @@ fn benchmark_mc_rust_cpu(repeats: usize) -> BenchmarkResult {
         ..EuropeanCallConfig::default()
     };
 
+    let backend = CpuNativeBackend::new();
+    let device = backend
+        .discover_devices()
+        .into_iter()
+        .next()
+        .expect("cpu backend should always expose host device");
+    let artifact = backend
+        .compile(
+            &ExecutionPlan {
+                backend: BackendId::CpuNative,
+                planner_mode: PlannerMode::Balanced,
+                n_paths: cfg.n_paths,
+                n_steps: cfg.n_steps,
+                features: FeatureSummary::default(),
+                decision_report: BackendDecisionReport {
+                    selected_backend: BackendId::CpuNative,
+                    reasons: vec!["benchmark direct cpu execution".to_string()],
+                    rejected_backends: vec![RejectedBackend {
+                        backend: BackendId::NvidiaCuda,
+                        reason: "not part of direct cpu benchmark path".to_string(),
+                    }],
+                },
+            },
+            &device,
+        )
+        .expect("cpu backend compile for benchmark should succeed");
+
     let mut runtimes = Vec::with_capacity(repeats);
     let mut prices = Vec::with_capacity(repeats);
     let mut stderrs = Vec::with_capacity(repeats);
@@ -311,13 +339,13 @@ fn benchmark_mc_rust_cpu(repeats: usize) -> BenchmarkResult {
         let mut cfg_i = cfg;
         cfg_i.seed = cfg.seed + i as u64;
 
-        let started = Instant::now();
-        let result = european_call_price_mc_cpu(&cfg_i);
-        let elapsed = started.elapsed();
+        let run_output = backend
+            .execute(&artifact, &BackendExecutionInput::EuropeanCall(cfg_i))
+            .expect("cpu backend execute for benchmark should succeed");
 
-        runtimes.push(elapsed.as_secs_f64() * 1_000.0);
-        prices.push(result.price);
-        stderrs.push(result.stderr);
+        runtimes.push(run_output.runtime_ms);
+        prices.push(run_output.price);
+        stderrs.push(run_output.stderr);
     }
 
     let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;

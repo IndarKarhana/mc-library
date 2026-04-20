@@ -22,7 +22,7 @@ This repository is in active build-out.
 ## Workspace Layout
 
 - `crates/mc-schema`: schema types, diagnostics, compatibility, and validation
-- `crates/mc-core`: planner interfaces, normalization, feature extraction, execution planning
+- `crates/mc-core`: planner interfaces, backend contract, CPU runtime, and execution planning
 - `crates/mc-bench`: benchmark harness and benchmark result schema
 
 ## Running Tests
@@ -37,6 +37,10 @@ cargo test
 cargo run -p mc-bench -- --output benchmarks/latest-results.json
 ```
 
+```bash
+cargo run -p mc-bench --release -- --output benchmarks/release-results.json
+```
+
 ## Benchmark Gates
 
 Benchmark thresholds are documented in `docs/benchmark-gates.md`.
@@ -45,6 +49,7 @@ User-experience research and UX implementation plan is in `docs/user-friendlines
 
 ## Next Steps
 
-- implement CPU reference backend contract and deterministic RNG mapping
-- add first executable simulation loop for baseline workloads
-- expand benchmark suite to include external ecosystem baselines
+- implement NVIDIA backend contract and device discovery
+- implement Apple Metal backend contract and device discovery
+- expand competitor matrix to JAX/CuPy/PyTorch where environment allows
+- add CI for lint, test, and benchmark gate checks

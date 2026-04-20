@@ -1,7 +1,9 @@
 use std::f64::consts::PI;
 use std::thread;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct EuropeanCallConfig {
     pub s0: f64,
     pub k: f64,
@@ -30,7 +32,7 @@ impl Default for EuropeanCallConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct EuropeanCallResult {
     pub price: f64,
     pub stderr: f64,
