@@ -6,18 +6,18 @@ This directory stores generated benchmark reports.
 
 From `latest-results.json`:
 
-- `schema_validation`: `9.103 us` per iteration (`109,848.72 ops/sec`)
-- `planner_overhead_auto`: `0.473 us` per iteration (`2,113,588.02 ops/sec`)
+- `schema_validation`: `8.380 us` per iteration (`119,336.85 ops/sec`)
+- `planner_overhead_auto`: `0.415 us` per iteration (`2,408,163.48 ops/sec`)
 - `planner_choice_accuracy`: `100.0%` on the internal scenario set
-- `mc_cpu_european_call_rust`: `1.374 ms` per run (`72,794,914.64 paths/sec`)
-- `mc_cpu_european_call_numpy`: `89.786 ms` per run (`1,113,761.45 paths/sec`)
-- `mc_cpu_european_call_numba`: `481.461 ms` per run (`207,700.97 paths/sec`)
+- `mc_cpu_european_call_rust`: `1.234 ms` per run (`81,004,455.25 paths/sec`)
+- `mc_cpu_european_call_numpy`: `81.402 ms` per run (`1,228,476.70 paths/sec`)
+- `mc_cpu_european_call_numba`: `227.355 ms` per run (`439,841.34 paths/sec`)
 
 From `release-results.json`:
 
-- `mc_cpu_european_call_rust`: `1.065 ms` per run (`93,853,884.52 paths/sec`)
-- `mc_cpu_european_call_numpy`: `85.180 ms` per run (`1,173,989.48 paths/sec`)
-- `mc_cpu_european_call_numba`: `328.711 ms` per run (`304,218.95 paths/sec`)
+- `mc_cpu_european_call_rust`: `0.518 ms` per run (`193,153,854.77 paths/sec`)
+- `mc_cpu_european_call_numpy`: `88.099 ms` per run (`1,135,090.43 paths/sec`)
+- `mc_cpu_european_call_numba`: `227.294 ms` per run (`439,959.22 paths/sec`)
 
 ## Competitiveness Output
 

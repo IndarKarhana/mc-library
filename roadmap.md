@@ -43,7 +43,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Implement CUDA backend contract and device discovery.
 - `todo` Implement first CUDA kernels for core workload path.
 - `done` Add GPU memory and chunking strategy.
-- `todo` Add planner heuristics for CUDA selection.
+- `done` Add planner heuristics for CUDA selection.
 
 ## Phase 5: Apple Runtime
 

@@ -51,6 +51,6 @@ User-experience research and UX implementation plan is in `docs/user-friendlines
 
 - implement first NVIDIA CUDA kernels for core workload path
 - implement first Apple Metal kernels for core workload path
-- add planner heuristics for GPU backend selection
+- add Apple-specific planner heuristics for Metal-first environments
 - expand competitor matrix to JAX/CuPy/PyTorch where environment allows
 - add CI for lint, test, and benchmark gate checks

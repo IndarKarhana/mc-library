@@ -341,17 +341,34 @@ fn plan_with_auto_backend(
 }
 
 fn backend_priority(normalized: &NormalizedRunConfig, features: &FeatureSummary) -> Vec<BackendId> {
-    if features.conditional_expression_count > 0 || normalized.n_paths < 100_000 {
+    const SMALL_WORK_THRESHOLD: usize = 8_000_000;
+    const GPU_WORK_THRESHOLD: usize = 40_000_000;
+    const GPU_MIN_PATHS: usize = 200_000;
+    const GPU_MIN_STEPS: usize = 32;
+
+    let total_work = normalized.n_paths.saturating_mul(normalized.n_steps);
+    let prefers_cpu = features.conditional_expression_count > 0
+        || normalized.n_paths < 100_000
+        || total_work < SMALL_WORK_THRESHOLD
+        || normalized.n_steps < GPU_MIN_STEPS;
+
+    if prefers_cpu {
         vec![
             BackendId::CpuNative,
             BackendId::NvidiaCuda,
             BackendId::AppleMetal,
         ]
-    } else {
+    } else if normalized.n_paths >= GPU_MIN_PATHS && total_work >= GPU_WORK_THRESHOLD {
         vec![
             BackendId::NvidiaCuda,
             BackendId::AppleMetal,
             BackendId::CpuNative,
+        ]
+    } else {
+        vec![
+            BackendId::CpuNative,
+            BackendId::NvidiaCuda,
+            BackendId::AppleMetal,
         ]
     }
 }

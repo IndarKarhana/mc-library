@@ -157,6 +157,24 @@ fn auto_planner_prefers_nvidia_for_large_parallel_workloads() {
 }
 
 #[test]
+fn auto_planner_prefers_cpu_when_steps_are_too_small_for_gpu() {
+    let spec = sample_spec(false);
+    let plan = plan_execution(
+        &spec,
+        RunConfig {
+            n_paths: 1_000_000,
+            n_steps: 8,
+            planner_mode: PlannerMode::Balanced,
+            backend_preference: BackendPreference::Auto,
+        },
+        &support_all(),
+    )
+    .expect("expected plan to be created");
+
+    assert_eq!(plan.backend, BackendId::CpuNative);
+}
+
+#[test]
 fn explicit_backend_request_fails_when_unsupported() {
     let spec = sample_spec(false);
     let err = plan_execution(
