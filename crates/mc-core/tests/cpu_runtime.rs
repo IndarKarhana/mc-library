@@ -27,6 +27,21 @@ fn european_call_mc_is_deterministic_for_same_seed() {
 }
 
 #[test]
+fn european_call_mc_is_deterministic_for_parallel_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 11,
+        n_threads: 4,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu(&cfg);
+    let r2 = european_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
 fn european_call_mc_outputs_sane_values() {
     let cfg = EuropeanCallConfig {
         n_paths: 30_000,
@@ -39,4 +54,54 @@ fn european_call_mc_outputs_sane_values() {
     assert!(result.price >= 0.0);
     assert!(result.stderr >= 0.0);
     assert!(result.price < cfg.s0 * 2.0);
+}
+
+#[test]
+fn european_call_mc_is_close_to_black_scholes_price() {
+    let cfg = EuropeanCallConfig {
+        s0: 100.0,
+        k: 100.0,
+        r: 0.03,
+        sigma: 0.2,
+        t: 1.0,
+        n_paths: 200_000,
+        n_steps: 64,
+        seed: 2026,
+        n_threads: 4,
+    };
+
+    let mc = european_call_price_mc_cpu(&cfg);
+    let analytic = black_scholes_call(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t);
+    let error = (mc.price - analytic).abs();
+
+    // 5-sigma band keeps this test stable while still catching large numeric regressions.
+    assert!(
+        error <= (5.0 * mc.stderr + 1e-9),
+        "mc price deviates too much from analytic price: mc={} analytic={} stderr={}",
+        mc.price,
+        analytic,
+        mc.stderr
+    );
+}
+
+fn black_scholes_call(s0: f64, k: f64, r: f64, sigma: f64, t: f64) -> f64 {
+    let sqrt_t = t.sqrt();
+    let d1 = ((s0 / k).ln() + (r + 0.5 * sigma * sigma) * t) / (sigma * sqrt_t);
+    let d2 = d1 - sigma * sqrt_t;
+    s0 * normal_cdf(d1) - k * (-r * t).exp() * normal_cdf(d2)
+}
+
+fn normal_cdf(x: f64) -> f64 {
+    // Abramowitz-Stegun style erf approximation.
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    let z = x.abs() / 2f64.sqrt();
+    let t = 1.0 / (1.0 + 0.3275911 * z);
+    let a1 = 0.254829592;
+    let a2 = -0.284496736;
+    let a3 = 1.421413741;
+    let a4 = -1.453152027;
+    let a5 = 1.061405429;
+    let poly = (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t;
+    let erf_approx = 1.0 - poly * (-z * z).exp();
+    0.5 * (1.0 + sign * erf_approx)
 }

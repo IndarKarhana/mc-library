@@ -21,6 +21,9 @@ Benchmark against best-in-class libraries and keep `mc-library` at or above comp
 - `cargo run -p mc-bench -- --output benchmarks/latest-results.json`
   - generates benchmark report
   - generates competitiveness plan
+- `cargo run -p mc-bench --release -- --output benchmarks/release-results.json`
+  - generates optimized-profile benchmark report for competitiveness tracking
+  - refreshes competitiveness plan based on release-profile data
 
 ## Definition of Competitive Success
 

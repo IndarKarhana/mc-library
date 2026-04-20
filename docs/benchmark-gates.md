@@ -15,6 +15,7 @@ The gates prevent obvious regressions while the codebase is still early.
 5. A competitiveness plan must always be generated (`benchmarks/improvement-plan.md`) and include either:
 - `Maintain lead plan` when we win
 - `Action plan to close the gap` when we lose
+6. If NumPy or Numba benchmarks are available, Rust CPU MC runtime should be faster on the tracked European-call workload.
 
 These thresholds are intentionally conservative for early development and should be tightened as functionality grows.
 

@@ -36,7 +36,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add deterministic RNG stream mapping.
 - `done` Implement baseline execution loop for path/step simulation (European call workload).
 - `done` Implement baseline reductions (mean and standard error for payoff).
-- `in-progress` Validate numeric correctness against benchmark fixtures.
+- `done` Validate numeric correctness against benchmark fixtures (analytic Black-Scholes check).
 
 ## Phase 4: NVIDIA Runtime
 
@@ -60,6 +60,8 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Auto-generate competitiveness improvement plan when running benchmarks.
 - `done` Track planner decision quality via planner-choice accuracy benchmark.
 - `done` Define performance gates and regression thresholds.
+- `done` Add release-profile benchmark output for stronger competitiveness tracking.
+- `done` Add competitiveness gate checks (Rust faster than available NumPy/Numba CPU baselines).
 
 ## Ongoing Engineering Quality Track
 

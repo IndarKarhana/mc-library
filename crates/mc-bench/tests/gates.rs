@@ -44,4 +44,30 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         rust_mc.total_runtime_ms > 0.0,
         "mc_cpu_european_call_rust gate failed: expected benchmark presence and positive runtime"
     );
+
+    if let Some(numpy) = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_numpy")
+    {
+        assert!(
+            rust_mc.per_iteration_us < numpy.per_iteration_us,
+            "competitiveness gate failed: rust per_iteration_us={} numpy per_iteration_us={}",
+            rust_mc.per_iteration_us,
+            numpy.per_iteration_us
+        );
+    }
+
+    if let Some(numba) = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_numba")
+    {
+        assert!(
+            rust_mc.per_iteration_us < numba.per_iteration_us,
+            "competitiveness gate failed: rust per_iteration_us={} numba per_iteration_us={}",
+            rust_mc.per_iteration_us,
+            numba.per_iteration_us
+        );
+    }
 }
