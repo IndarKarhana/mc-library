@@ -7,6 +7,8 @@ Agent-native Monte Carlo runtime with CPU, NVIDIA CUDA, and Apple Metal executio
 This repository is in active build-out.
 
 - architecture and design docs are in `docs/`
+- project-level agent instructions are in `AGENTS.md`
+- Codex project skills are in `./.codex/skills/`
 - core engineering rules are in `docs/repository-rules.md`
 - roadmap is in `roadmap.md`
 - Rust workspace scaffolding is in `crates/`
@@ -46,6 +48,8 @@ cargo run -p mc-bench --release -- --output benchmarks/release-results.json
 Benchmark thresholds are documented in `docs/benchmark-gates.md`.
 Competitive benchmark policy is documented in `docs/competitive-benchmark-policy.md`.
 User-experience research and UX implementation plan is in `docs/user-friendliness-research.md`.
+Agent integration guidance is in `docs/agent-integration-plan.md`.
+Public function inventory is in `docs/function-catalog.md`.
 
 ## Next Steps
 

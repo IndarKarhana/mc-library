@@ -63,6 +63,16 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add release-profile benchmark output for stronger competitiveness tracking.
 - `done` Add competitiveness gate checks (Rust faster than available NumPy/Numba CPU baselines).
 
+## Phase 7: Agent Experience and Integration
+
+- `done` Add project-level `AGENTS.md` instructions for repo-native agent workflows.
+- `done` Add Codex project skills for architecture and agent-surface discipline.
+- `done` Add a function catalog for public and future tool-facing surfaces.
+- `done` Add an agent integration plan for future tool/plugin wrapping.
+- `todo` Add machine-readable tool manifest and schema export for stable agent integration.
+- `todo` Add explain-plan and run-manifest helpers as first-class agent-facing surfaces.
+- `todo` Add Python-facing agent wrappers that preserve typed, explainable contracts.
+
 ## Ongoing Engineering Quality Track
 
 - `in-progress` Test-driven development as default coding workflow.
