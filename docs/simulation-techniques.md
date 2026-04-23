@@ -34,6 +34,24 @@ Why it matters:
 - it improves estimator quality without changing the expectation being estimated
 - it is often a strong default for symmetric shock-driven path simulation
 
+### 3. Control variates
+
+Status:
+
+- supported now for the current European-call CPU runtime
+
+Why it matters:
+
+- it can deliver large variance reduction when a strong correlated control is available
+- it is one of the highest-value techniques in production Monte Carlo pricing stacks
+- it improves quality without requiring more simulated paths
+
+Current implementation:
+
+- uses discounted terminal stock as the control variate
+- leverages the known expectation `E[e^{-rT} S_T] = S0`
+- currently implemented for both step-wise and terminal-distribution European-call CPU paths
+
 ## Near-Term Techniques
 
 ### 1. Scrambled Sobol / randomized quasi-Monte Carlo
@@ -80,12 +98,12 @@ Primary source:
 
 - SciPy LatinHypercube documentation: https://docs.scipy.org/doc/scipy-1.16.1/reference/generated/scipy.stats.qmc.LatinHypercube.html
 
-### 3. Control variates
+### 3. Workload-general control variates
 
 Status:
 
-- not implemented yet
-- high-value for workloads with known analytic moments or approximations
+- partially implemented now
+- still high-value for broader workloads with known analytic moments or approximations
 
 Why it matters:
 
@@ -94,7 +112,7 @@ Why it matters:
 
 Planned direction:
 
-- start with workload-specific control variates where the reference expectation is known exactly
+- keep the current European-call control variate as the first specialized implementation
 - later generalize through planner-selected auxiliary statistics
 
 ## Advanced High-Value Techniques
@@ -153,9 +171,9 @@ These matter, but they should not displace the core roadmap of:
 
 ## Recommended Implementation Order
 
-1. Keep standard and antithetic CPU execution correct and benchmarked.
+1. Keep standard, antithetic, and current control-variate execution correct and benchmarked.
 2. Add explicit technique metadata to user-facing and benchmark-facing outputs.
 3. Add scrambled Sobol / randomized QMC support.
-4. Add control variates for narrow workloads with strong analytic references.
+4. Generalize control variates beyond the current workload-specific path.
 5. Add MLMC for discretized path simulation.
 6. Add MLQMC only after MLMC and RQMC are individually solid.

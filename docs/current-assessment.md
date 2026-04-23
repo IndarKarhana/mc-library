@@ -13,13 +13,13 @@ Today we have:
 - a strong documentation and planning foundation
 - a fast specialized CPU implementation for terminal-distribution pricing
 - a fair step-wise CPU benchmark path that still beats available NumPy and Numba baselines
-- antithetic-variates support for the current CPU European-call runtime
+- antithetic-variates and control-variates support for the current CPU European-call runtime
 - good benchmark automation and artifact discipline
-- backend contracts and discovery scaffolding for NVIDIA and Apple
+- backend contracts, discovery scaffolding, and explicit fallback execution paths for NVIDIA and Apple
 
 Today we do not yet have:
 
-- actual CUDA or Metal execution
+- native CUDA or Metal kernel execution
 - planner decisions calibrated from measured backend behavior
 
 ## What Is Working Well
@@ -28,7 +28,8 @@ Today we do not yet have:
 
 - The fair release step-wise benchmark now leads available NumPy and Numba baselines.
 - The specialized terminal-distribution path remains dramatically faster and is now labeled separately.
-- We now also support antithetic variates on the current CPU workload, improving estimator quality at the cost of throughput.
+- We now support both antithetic variates and control variates on the current CPU workload.
+- The current control-variate implementation is especially strong for European calls because it uses discounted terminal stock as a control with known expectation `S0`.
 
 ### 2. Planner overhead is already cheap
 
@@ -40,11 +41,11 @@ The architecture docs, roadmap, benchmark artifacts, and quality rules are unusu
 
 ## What Is Misleading Or Risky
 
-### 1. GPU support is still contractual, not operational
+### 1. GPU acceleration is still not native yet
 
-The planner and backend layers know about CUDA and Metal, but execution is still explicitly unsupported.
+The planner and backend layers now execute through explicit delegated CPU fallback semantics, but they still do not run native CUDA or Metal kernels.
 
-That means the product is architecturally prepared for GPU work, but not yet functionally competitive there.
+That means the product is operationally honest and integration-ready, but it is not yet GPU-accelerated in the way users will ultimately expect.
 
 ### 2. Planner “accuracy” is still synthetic
 
@@ -54,9 +55,9 @@ It is useful as a regression check, but it is not yet evidence that the planner 
 
 ## Priority Order
 
-## Priority 1: Turn GPU backends from planning objects into real runtimes
+## Priority 1: Turn fallback GPU runtimes into native GPU runtimes
 
-The next major product leap is operational CUDA and Metal execution.
+The next major product leap is native CUDA and Metal execution.
 
 Immediate goals:
 
@@ -67,7 +68,7 @@ Immediate goals:
 
 Why third:
 
-- without real GPU kernels, the library cannot yet win where GPU-native competitors matter most
+- without native GPU kernels, the library cannot yet win where GPU-native competitors matter most
 
 ## Priority 2: Replace heuristic-only planner choices with measured evidence
 
@@ -92,13 +93,12 @@ The next useful agent-facing runtime features are:
 
 ## Concrete Build Sequence
 
-1. Make the benchmark suite fair.
-2. Implement the first CUDA kernel path.
-3. Implement the first Metal kernel path.
-4. Recalibrate planner heuristics from observed data.
-5. Add agent-facing explain and manifest helpers.
-6. Add scrambled Sobol / randomized quasi-Monte Carlo.
-7. Add control variates and then MLMC foundations.
+1. Implement the first CUDA kernel path.
+2. Implement the first Metal kernel path.
+3. Recalibrate planner heuristics from observed data.
+4. Add agent-facing explain and manifest helpers.
+5. Add scrambled Sobol / randomized quasi-Monte Carlo.
+6. Add MLMC foundations.
 
 ## What We Should Not Do Yet
 

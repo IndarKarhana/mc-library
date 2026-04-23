@@ -39,11 +39,12 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Validate numeric correctness against benchmark fixtures (analytic Black-Scholes check).
 - `done` Add explicit general CPU step-wise execution path separate from specialized terminal-distribution fast path.
 - `done` Add antithetic-variates support for the current CPU European-call runtime.
-- `todo` Add control-variate support for narrow workloads with strong analytic references.
+- `done` Add control-variate support for narrow workloads with strong analytic references.
 
 ## Phase 4: NVIDIA Runtime
 
 - `done` Implement CUDA backend contract and device discovery.
+- `done` Add truthful delegated fallback execution path for CUDA backend while native kernels are in progress.
 - `todo` Implement first CUDA kernels for core workload path.
 - `done` Add GPU memory and chunking strategy.
 - `done` Add planner heuristics for CUDA selection.
@@ -51,6 +52,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 ## Phase 5: Apple Runtime
 
 - `done` Implement Apple Metal backend contract.
+- `done` Add truthful delegated fallback execution path for Apple Metal backend while native kernels are in progress.
 - `todo` Implement first Metal compute kernels for core workload path.
 - `todo` Add planner heuristics for Apple backend selection.
 
@@ -68,6 +70,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Split European-call benchmarks into fair terminal-distribution and true step-wise benchmark families.
 - `done` Add benchmark methodology metadata so specialized fast paths are not confused with general-runtime comparisons.
 - `done` Add internal antithetic-quality benchmarking via stderr-ratio tracking.
+- `done` Add internal control-variate-quality benchmarking via stderr-ratio tracking.
 - `todo` Calibrate planner choice quality against measured backend winners, not only hand-authored expected scenarios.
 
 ## Phase 8: Advanced Simulation Techniques

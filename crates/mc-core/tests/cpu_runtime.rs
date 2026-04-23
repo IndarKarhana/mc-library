@@ -106,6 +106,37 @@ fn european_call_antithetic_stepwise_is_deterministic_for_same_seed() {
 }
 
 #[test]
+fn european_call_control_variate_terminal_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 77,
+        technique: MonteCarloTechnique::ControlVariate,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_terminal(&cfg);
+    let r2 = european_call_price_mc_cpu_terminal(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn european_call_control_variate_stepwise_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 78,
+        n_threads: 4,
+        technique: MonteCarloTechnique::ControlVariate,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_stepwise(&cfg);
+    let r2 = european_call_price_mc_cpu_stepwise(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
 fn european_call_mc_outputs_sane_values() {
     let cfg = EuropeanCallConfig {
         n_paths: 30_000,
@@ -175,6 +206,20 @@ fn pricer_builder_supports_antithetic_configuration() {
         .seed(888)
         .stepwise()
         .antithetic()
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn pricer_builder_supports_control_variate_configuration() {
+    let result = EuropeanCallPricer::new()
+        .paths(50_000)
+        .steps(64)
+        .seed(889)
+        .stepwise()
+        .control_variate()
         .price();
 
     assert!(result.price >= 0.0);
@@ -256,6 +301,45 @@ fn antithetic_stepwise_reduces_standard_error() {
     let antithetic = european_call_price_mc_cpu_stepwise(&antithetic_cfg);
 
     assert!(antithetic.stderr < standard.stderr);
+}
+
+#[test]
+fn control_variate_terminal_reduces_standard_error() {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: 200_000,
+        n_steps: 64,
+        seed: 902,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_terminal(&standard_cfg);
+    let control = european_call_price_mc_cpu_terminal(&control_cfg);
+
+    assert!(control.stderr < standard.stderr);
+}
+
+#[test]
+fn control_variate_stepwise_reduces_standard_error() {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: 200_000,
+        n_steps: 64,
+        seed: 903,
+        n_threads: 4,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+
+    assert!(control.stderr < standard.stderr);
 }
 
 fn black_scholes_call(s0: f64, k: f64, r: f64, sigma: f64, t: f64) -> f64 {

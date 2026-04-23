@@ -1,8 +1,8 @@
 use mc_core::{
     builtin_backends, estimate_gpu_bytes_per_path, plan_gpu_chunking, AppleMetalBackend,
-    BackendDecisionReport, BackendError, BackendExecutionInput, BackendId, CompiledArtifact,
-    DeviceInfo, EuropeanCallConfig, ExecutionPlan, FeatureSummary, GpuChunkingConfig,
-    NvidiaCudaBackend, PlannerMode, RejectedBackend, RuntimeBackend, SupportLevel,
+    BackendDecisionReport, BackendError, BackendExecutionInput, BackendId, DeviceInfo,
+    EuropeanCallConfig, ExecutionPlan, FeatureSummary, GpuChunkingConfig, NvidiaCudaBackend,
+    PlannerMode, RejectedBackend, RuntimeBackend, SupportLevel,
 };
 
 fn test_plan() -> ExecutionPlan {
@@ -96,10 +96,10 @@ fn cuda_supports_reports_pending_execution_for_valid_device() {
     let backend = NvidiaCudaBackend::new();
     let report = backend.supports(&test_plan(), &mock_cuda_device());
 
-    assert_eq!(report.support_level, SupportLevel::Unsupported);
+    assert_eq!(report.support_level, SupportLevel::SupportedWithFallbacks);
     assert!(report
         .unsupported_features
-        .contains(&"execution_not_implemented".to_string()));
+        .contains(&"native_cuda_execution_not_implemented".to_string()));
 }
 
 #[test]
@@ -107,74 +107,103 @@ fn metal_supports_reports_pending_execution_for_valid_device() {
     let backend = AppleMetalBackend::new();
     let report = backend.supports(&test_plan(), &mock_metal_device());
 
-    assert_eq!(report.support_level, SupportLevel::Unsupported);
+    assert_eq!(report.support_level, SupportLevel::SupportedWithFallbacks);
     assert!(report
         .unsupported_features
-        .contains(&"execution_not_implemented".to_string()));
+        .contains(&"native_metal_execution_not_implemented".to_string()));
 }
 
 #[test]
-fn cuda_compile_returns_not_implemented_error() {
+fn cuda_compile_succeeds_with_fallback_artifact() {
     let backend = NvidiaCudaBackend::new();
-    let err = backend
+    let artifact = backend
         .compile(&test_plan(), &mock_cuda_device())
-        .expect_err("cuda compile should return unsupported while kernels are not implemented");
+        .expect("cuda fallback compile should succeed");
 
-    assert!(matches!(err, BackendError::UnsupportedFeature(_)));
+    assert_eq!(artifact.backend_id, BackendId::NvidiaCuda);
+    assert!(artifact.artifact_id.starts_with("cuda-fallback:"));
 }
 
 #[test]
-fn metal_compile_returns_not_implemented_error() {
+fn metal_compile_succeeds_with_fallback_artifact() {
     let backend = AppleMetalBackend::new();
-    let err = backend
+    let artifact = backend
         .compile(&test_plan(), &mock_metal_device())
-        .expect_err("metal compile should return unsupported while kernels are not implemented");
+        .expect("metal fallback compile should succeed");
 
-    assert!(matches!(err, BackendError::UnsupportedFeature(_)));
+    assert_eq!(artifact.backend_id, BackendId::AppleMetal);
+    assert!(artifact.artifact_id.starts_with("metal-fallback:"));
 }
 
 #[test]
-fn cuda_execute_returns_not_implemented_error() {
+fn cuda_execute_runs_with_deterministic_fallback() {
     let backend = NvidiaCudaBackend::new();
-    let artifact = CompiledArtifact {
-        artifact_id: "cuda-dummy".to_string(),
-        backend_id: BackendId::NvidiaCuda,
-        device_id: "cuda:0".to_string(),
-        n_paths: 10,
-        n_steps: 10,
-        planner_mode: PlannerMode::Balanced,
-    };
+    let artifact = backend
+        .compile(&test_plan(), &mock_cuda_device())
+        .expect("cuda fallback compile should succeed");
+    let input = BackendExecutionInput::EuropeanCall(EuropeanCallConfig {
+        n_paths: artifact.n_paths,
+        n_steps: artifact.n_steps,
+        seed: 77,
+        n_threads: 2,
+        ..EuropeanCallConfig::default()
+    });
 
-    let err = backend
-        .execute(
-            &artifact,
-            &BackendExecutionInput::EuropeanCall(EuropeanCallConfig::default()),
-        )
-        .expect_err("cuda execute should return unsupported while kernels are not implemented");
+    let run1 = backend
+        .execute(&artifact, &input)
+        .expect("cuda fallback execute should succeed");
+    let run2 = backend
+        .execute(&artifact, &input)
+        .expect("cuda fallback execute should succeed");
 
-    assert!(matches!(err, BackendError::UnsupportedFeature(_)));
+    assert_eq!(run1.price, run2.price);
+    assert_eq!(run1.stderr, run2.stderr);
 }
 
 #[test]
-fn metal_execute_returns_not_implemented_error() {
+fn metal_execute_runs_with_deterministic_fallback() {
     let backend = AppleMetalBackend::new();
-    let artifact = CompiledArtifact {
-        artifact_id: "metal-dummy".to_string(),
-        backend_id: BackendId::AppleMetal,
-        device_id: "metal:0".to_string(),
-        n_paths: 10,
-        n_steps: 10,
-        planner_mode: PlannerMode::Balanced,
-    };
+    let artifact = backend
+        .compile(&test_plan(), &mock_metal_device())
+        .expect("metal fallback compile should succeed");
+    let input = BackendExecutionInput::EuropeanCall(EuropeanCallConfig {
+        n_paths: artifact.n_paths,
+        n_steps: artifact.n_steps,
+        seed: 88,
+        n_threads: 2,
+        ..EuropeanCallConfig::default()
+    });
+
+    let run1 = backend
+        .execute(&artifact, &input)
+        .expect("metal fallback execute should succeed");
+    let run2 = backend
+        .execute(&artifact, &input)
+        .expect("metal fallback execute should succeed");
+
+    assert_eq!(run1.price, run2.price);
+    assert_eq!(run1.stderr, run2.stderr);
+}
+
+#[test]
+fn gpu_fallback_execute_rejects_mismatched_workload_shape() {
+    let backend = NvidiaCudaBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_cuda_device())
+        .expect("cuda fallback compile should succeed");
 
     let err = backend
         .execute(
             &artifact,
-            &BackendExecutionInput::EuropeanCall(EuropeanCallConfig::default()),
+            &BackendExecutionInput::EuropeanCall(EuropeanCallConfig {
+                n_paths: artifact.n_paths + 1,
+                n_steps: artifact.n_steps,
+                ..EuropeanCallConfig::default()
+            }),
         )
-        .expect_err("metal execute should return unsupported while kernels are not implemented");
+        .expect_err("mismatched workload should be rejected");
 
-    assert!(matches!(err, BackendError::UnsupportedFeature(_)));
+    assert!(matches!(err, BackendError::IncompatibleExecutionInput));
 }
 
 #[test]

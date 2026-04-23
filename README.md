@@ -49,6 +49,9 @@ The current CPU runtime exposes both:
 
 - a fair step-wise path benchmark path
 - a specialized terminal-distribution fast path
+- variance-reduction techniques including antithetic variates and control variates
+
+The current GPU backends execute through explicit delegated CPU fallback semantics while native CUDA and Metal kernels are being built. That keeps the backend surface real and testable without overstating GPU acceleration.
 
 ## Running Tests
 
@@ -79,11 +82,15 @@ Technique roadmap is in `docs/simulation-techniques.md`.
 
 From the latest release benchmark run:
 
-- fair step-wise Rust CPU path: `18.700 ms`
-- step-wise Rust antithetic path: `38.889 ms`
+- fair step-wise Rust CPU path: `18.520 ms`
+- step-wise Rust antithetic path: `35.972 ms`
+- step-wise Rust control-variate path: `18.703 ms`
 - step-wise NumPy baseline: see `benchmarks/release-results.json`
 - step-wise Numba baseline: see `benchmarks/release-results.json`
-- specialized Rust terminal-distribution fast path: `0.790 ms`
+- specialized Rust terminal-distribution fast path: `0.756 ms`
+- control-variate stderr ratio vs standard:
+  - step-wise: `0.411`
+  - terminal: `0.412`
 - antithetic stderr ratio vs standard:
   - step-wise: `0.747`
   - terminal: `0.741`
@@ -92,6 +99,7 @@ From the latest release benchmark run:
 
 - implement first NVIDIA CUDA kernels for core workload path
 - implement first Apple Metal kernels for core workload path
+- calibrate planner recommendations from measured backend winners once native GPU paths exist
 - add Apple-specific planner heuristics for Metal-first environments
 - expand competitor matrix to JAX/CuPy/PyTorch where environment allows
 - add CI for lint, test, and benchmark gate checks

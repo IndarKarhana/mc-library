@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    european_call_price_mc_cpu, BackendId, EuropeanCallConfig, ExecutionPlan, PlannerMode,
-    SupportLevel,
+    european_call_price_mc_cpu, european_call_price_mc_cpu_stepwise, BackendId, EuropeanCallConfig,
+    EuropeanCallResult, ExecutionPlan, PlannerMode, SupportLevel,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -333,10 +333,10 @@ impl RuntimeBackend for NvidiaCudaBackend {
         SupportReport {
             backend_id: BackendId::NvidiaCuda,
             device_id: device.device_id.clone(),
-            support_level: SupportLevel::Unsupported,
-            unsupported_features: vec!["execution_not_implemented".to_string()],
+            support_level: SupportLevel::SupportedWithFallbacks,
+            unsupported_features: vec!["native_cuda_execution_not_implemented".to_string()],
             warnings: vec![
-                "CUDA backend contract is present, kernel execution is pending".to_string(),
+                "CUDA backend currently executes through delegated CPU fallback while native kernels are in progress".to_string(),
             ],
         }
     }
@@ -369,23 +369,29 @@ impl RuntimeBackend for NvidiaCudaBackend {
 
     fn compile(
         &self,
-        _plan: &ExecutionPlan,
+        plan: &ExecutionPlan,
         device: &DeviceInfo,
     ) -> Result<CompiledArtifact, BackendError> {
         self.validate_device(device)?;
-        Err(BackendError::UnsupportedFeature(
-            "CUDA compile/execute path not implemented yet".to_string(),
-        ))
+        Ok(CompiledArtifact {
+            artifact_id: format!(
+                "cuda-fallback:{}:{}:{}",
+                plan.n_paths, plan.n_steps, plan.features.step_count
+            ),
+            backend_id: BackendId::NvidiaCuda,
+            device_id: device.device_id.clone(),
+            n_paths: plan.n_paths,
+            n_steps: plan.n_steps,
+            planner_mode: plan.planner_mode,
+        })
     }
 
     fn execute(
         &self,
-        _artifact: &CompiledArtifact,
-        _input: &BackendExecutionInput,
+        artifact: &CompiledArtifact,
+        input: &BackendExecutionInput,
     ) -> Result<RunOutput, BackendError> {
-        Err(BackendError::UnsupportedFeature(
-            "CUDA execute path not implemented yet".to_string(),
-        ))
+        execute_gpu_fallback(BackendId::NvidiaCuda, artifact, input)
     }
 
     fn reproducibility_capabilities(&self, _device: &DeviceInfo) -> ReproSupport {
@@ -456,10 +462,10 @@ impl RuntimeBackend for AppleMetalBackend {
         SupportReport {
             backend_id: BackendId::AppleMetal,
             device_id: device.device_id.clone(),
-            support_level: SupportLevel::Unsupported,
-            unsupported_features: vec!["execution_not_implemented".to_string()],
+            support_level: SupportLevel::SupportedWithFallbacks,
+            unsupported_features: vec!["native_metal_execution_not_implemented".to_string()],
             warnings: vec![
-                "Apple Metal backend contract is present, kernel execution is pending".to_string(),
+                "Apple Metal backend currently executes through delegated CPU fallback while native kernels are in progress".to_string(),
             ],
         }
     }
@@ -492,23 +498,29 @@ impl RuntimeBackend for AppleMetalBackend {
 
     fn compile(
         &self,
-        _plan: &ExecutionPlan,
+        plan: &ExecutionPlan,
         device: &DeviceInfo,
     ) -> Result<CompiledArtifact, BackendError> {
         self.validate_device(device)?;
-        Err(BackendError::UnsupportedFeature(
-            "Apple Metal compile/execute path not implemented yet".to_string(),
-        ))
+        Ok(CompiledArtifact {
+            artifact_id: format!(
+                "metal-fallback:{}:{}:{}",
+                plan.n_paths, plan.n_steps, plan.features.step_count
+            ),
+            backend_id: BackendId::AppleMetal,
+            device_id: device.device_id.clone(),
+            n_paths: plan.n_paths,
+            n_steps: plan.n_steps,
+            planner_mode: plan.planner_mode,
+        })
     }
 
     fn execute(
         &self,
-        _artifact: &CompiledArtifact,
-        _input: &BackendExecutionInput,
+        artifact: &CompiledArtifact,
+        input: &BackendExecutionInput,
     ) -> Result<RunOutput, BackendError> {
-        Err(BackendError::UnsupportedFeature(
-            "Apple Metal execute path not implemented yet".to_string(),
-        ))
+        execute_gpu_fallback(BackendId::AppleMetal, artifact, input)
     }
 
     fn reproducibility_capabilities(&self, _device: &DeviceInfo) -> ReproSupport {
@@ -566,6 +578,148 @@ pub fn estimate_gpu_bytes_per_path(plan: &ExecutionPlan) -> usize {
     let rng_state_bytes = 16usize;
     let step_scratch_bytes = plan.n_steps.min(256).saturating_mul(4);
     state_bytes + payoff_bytes + rng_state_bytes + step_scratch_bytes
+}
+
+fn execute_gpu_fallback(
+    backend_id: BackendId,
+    artifact: &CompiledArtifact,
+    input: &BackendExecutionInput,
+) -> Result<RunOutput, BackendError> {
+    if artifact.backend_id != backend_id {
+        return Err(BackendError::IncompatibleExecutionInput);
+    }
+
+    let started = Instant::now();
+    let result = match input {
+        BackendExecutionInput::EuropeanCall(cfg) => execute_chunked_cpu_fallback(artifact, cfg),
+    }?;
+
+    Ok(RunOutput {
+        price: result.price,
+        stderr: result.stderr,
+        runtime_ms: started.elapsed().as_secs_f64() * 1_000.0,
+    })
+}
+
+fn execute_chunked_cpu_fallback(
+    artifact: &CompiledArtifact,
+    cfg: &EuropeanCallConfig,
+) -> Result<EuropeanCallResult, BackendError> {
+    if cfg.n_paths != artifact.n_paths || cfg.n_steps != artifact.n_steps {
+        return Err(BackendError::IncompatibleExecutionInput);
+    }
+
+    let chunking = plan_gpu_chunking(
+        artifact.n_paths,
+        lookup_device_memory_mb(artifact.backend_id, &artifact.device_id),
+        GpuChunkingConfig {
+            bytes_per_path: estimate_gpu_bytes_for_artifact(artifact),
+            target_utilization: match artifact.backend_id {
+                BackendId::NvidiaCuda => 0.75,
+                BackendId::AppleMetal => 0.70,
+                BackendId::CpuNative => 0.75,
+            },
+            minimum_paths_per_chunk: 32_768,
+            fallback_budget_mb: match artifact.backend_id {
+                BackendId::NvidiaCuda => 8_192,
+                BackendId::AppleMetal => 6_144,
+                BackendId::CpuNative => 8_192,
+            },
+        },
+    );
+
+    let mut remaining_paths = artifact.n_paths;
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+
+    for chunk_idx in 0..chunking.chunk_count {
+        let chunk_paths = remaining_paths.min(chunking.paths_per_chunk);
+        let mut chunk_cfg = *cfg;
+        chunk_cfg.n_paths = chunk_paths;
+        chunk_cfg.seed = stable_fallback_seed(cfg.seed, chunk_idx as u64);
+
+        let chunk_result = european_call_price_mc_cpu_stepwise(&chunk_cfg);
+        accumulate_result_as_sums(
+            chunk_paths,
+            chunk_result,
+            &mut payoff_sum,
+            &mut payoff_sq_sum,
+        );
+        remaining_paths -= chunk_paths;
+    }
+
+    Ok(summarize_result_from_sums(
+        artifact.n_paths,
+        payoff_sum,
+        payoff_sq_sum,
+    ))
+}
+
+fn estimate_gpu_bytes_for_artifact(artifact: &CompiledArtifact) -> usize {
+    let synthetic_plan = ExecutionPlan {
+        backend: artifact.backend_id,
+        planner_mode: artifact.planner_mode,
+        n_paths: artifact.n_paths,
+        n_steps: artifact.n_steps,
+        features: Default::default(),
+        decision_report: crate::BackendDecisionReport {
+            selected_backend: artifact.backend_id,
+            reasons: Vec::new(),
+            rejected_backends: Vec::new(),
+        },
+    };
+    estimate_gpu_bytes_per_path(&synthetic_plan)
+}
+
+fn lookup_device_memory_mb(backend_id: BackendId, device_id: &str) -> Option<usize> {
+    match backend_id {
+        BackendId::NvidiaCuda => discover_nvidia_devices()
+            .into_iter()
+            .find(|device| device.device_id == device_id)
+            .and_then(|device| device.memory_total_mb),
+        BackendId::AppleMetal => discover_apple_metal_devices()
+            .into_iter()
+            .find(|device| device.device_id == device_id)
+            .and_then(|device| device.memory_total_mb),
+        BackendId::CpuNative => None,
+    }
+}
+
+fn accumulate_result_as_sums(
+    n_paths: usize,
+    result: EuropeanCallResult,
+    payoff_sum: &mut f64,
+    payoff_sq_sum: &mut f64,
+) {
+    let n = n_paths as f64;
+    let variance = (result.stderr * n.sqrt()).powi(2);
+    let second_moment = variance + (result.price * result.price);
+    *payoff_sum += result.price * n;
+    *payoff_sq_sum += second_moment * n;
+}
+
+fn summarize_result_from_sums(
+    n_paths: usize,
+    payoff_sum: f64,
+    payoff_sq_sum: f64,
+) -> EuropeanCallResult {
+    let n = n_paths as f64;
+    let price = payoff_sum / n;
+    let variance = (payoff_sq_sum / n) - (price * price);
+    let stderr = variance.max(0.0).sqrt() / n.sqrt();
+    EuropeanCallResult { price, stderr }
+}
+
+fn stable_fallback_seed(base_seed: u64, chunk_index: u64) -> u64 {
+    splitmix64(base_seed.wrapping_add(chunk_index.wrapping_mul(0x9E37_79B9_7F4A_7C15)))
+}
+
+fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = x;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
 }
 
 fn discover_nvidia_devices() -> Vec<DeviceInfo> {

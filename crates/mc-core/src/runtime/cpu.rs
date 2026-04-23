@@ -22,6 +22,7 @@ impl Default for EuropeanCallMethod {
 pub enum MonteCarloTechnique {
     Standard,
     Antithetic,
+    ControlVariate,
 }
 
 impl Default for MonteCarloTechnique {
@@ -164,6 +165,11 @@ impl EuropeanCallPricer {
         self
     }
 
+    pub fn control_variate(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::ControlVariate;
+        self
+    }
+
     pub fn standard(mut self) -> Self {
         self.config.technique = MonteCarloTechnique::Standard;
         self
@@ -256,8 +262,10 @@ pub fn european_call_price_mc_cpu_with_method(
 }
 
 pub fn european_call_price_mc_cpu_terminal(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
-    if cfg.technique == MonteCarloTechnique::Antithetic {
-        return simulate_terminal_antithetic(cfg);
+    match cfg.technique {
+        MonteCarloTechnique::Antithetic => return simulate_terminal_antithetic(cfg),
+        MonteCarloTechnique::ControlVariate => return simulate_terminal_control_variate(cfg),
+        MonteCarloTechnique::Standard => {}
     }
 
     // For European calls under GBM, we can sample terminal distribution directly:
@@ -287,8 +295,10 @@ pub fn european_call_price_mc_cpu_terminal(cfg: &EuropeanCallConfig) -> European
 }
 
 pub fn european_call_price_mc_cpu_stepwise(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
-    if cfg.technique == MonteCarloTechnique::Antithetic {
-        return simulate_stepwise_antithetic(cfg);
+    match cfg.technique {
+        MonteCarloTechnique::Antithetic => return simulate_stepwise_antithetic(cfg),
+        MonteCarloTechnique::ControlVariate => return simulate_stepwise_control_variate(cfg),
+        MonteCarloTechnique::Standard => {}
     }
 
     let dt = cfg.t / cfg.n_steps as f64;
@@ -361,6 +371,36 @@ fn simulate_terminal_parallel(
     (payoff_sum, payoff_sq_sum)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ControlVariateMoments {
+    sample_count: usize,
+    payoff_sum: f64,
+    payoff_sq_sum: f64,
+    control_sum: f64,
+    control_sq_sum: f64,
+    payoff_control_cross_sum: f64,
+}
+
+impl ControlVariateMoments {
+    fn record(&mut self, payoff: f64, control: f64) {
+        self.sample_count += 1;
+        self.payoff_sum += payoff;
+        self.payoff_sq_sum += payoff * payoff;
+        self.control_sum += control;
+        self.control_sq_sum += control * control;
+        self.payoff_control_cross_sum += payoff * control;
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.sample_count += other.sample_count;
+        self.payoff_sum += other.payoff_sum;
+        self.payoff_sq_sum += other.payoff_sq_sum;
+        self.control_sum += other.control_sum;
+        self.control_sq_sum += other.control_sq_sum;
+        self.payoff_control_cross_sum += other.payoff_control_cross_sum;
+    }
+}
+
 fn simulate_stepwise_parallel(
     cfg: &EuropeanCallConfig,
     thread_count: usize,
@@ -407,6 +447,88 @@ fn simulate_stepwise_parallel(
     (payoff_sum, payoff_sq_sum)
 }
 
+fn simulate_terminal_control_variate_parallel(
+    cfg: &EuropeanCallConfig,
+    thread_count: usize,
+    drift_t: f64,
+    vol_t: f64,
+    discount: f64,
+) -> ControlVariateMoments {
+    let base_chunk = cfg.n_paths / thread_count;
+    let remainder = cfg.n_paths % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let n_paths_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        let s0 = cfg.s0;
+        let k = cfg.k;
+        handles.push(thread::spawn(move || {
+            simulate_terminal_control_variate_chunk(
+                seed,
+                n_paths_chunk,
+                s0,
+                k,
+                drift_t,
+                vol_t,
+                discount,
+            )
+        }));
+    }
+
+    let mut moments = ControlVariateMoments::default();
+    for handle in handles {
+        let chunk = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        moments.merge(chunk);
+    }
+
+    moments
+}
+
+fn simulate_stepwise_control_variate_parallel(
+    cfg: &EuropeanCallConfig,
+    thread_count: usize,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> ControlVariateMoments {
+    let base_chunk = cfg.n_paths / thread_count;
+    let remainder = cfg.n_paths % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let n_paths_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        let s0 = cfg.s0;
+        let k = cfg.k;
+        let n_steps = cfg.n_steps;
+        handles.push(thread::spawn(move || {
+            simulate_stepwise_control_variate_chunk(
+                seed,
+                n_paths_chunk,
+                n_steps,
+                s0,
+                k,
+                drift_dt,
+                vol_dt,
+                discount,
+            )
+        }));
+    }
+
+    let mut moments = ControlVariateMoments::default();
+    for handle in handles {
+        let chunk = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        moments.merge(chunk);
+    }
+
+    moments
+}
+
 fn simulate_terminal_chunk(
     seed: u64,
     n_paths: usize,
@@ -446,6 +568,9 @@ fn simulate_terminal_chunk(
                 payoff_sum += payoff;
                 payoff_sq_sum += payoff * payoff;
             }
+        }
+        MonteCarloTechnique::ControlVariate => {
+            unreachable!("control variate terminal path uses dedicated accumulator kernel");
         }
     }
 
@@ -510,9 +635,64 @@ fn simulate_stepwise_chunk(
                 payoff_sq_sum += payoff * payoff;
             }
         }
+        MonteCarloTechnique::ControlVariate => {
+            unreachable!("control variate stepwise path uses dedicated accumulator kernel");
+        }
     }
 
     (payoff_sum, payoff_sq_sum)
+}
+
+fn simulate_terminal_control_variate_chunk(
+    seed: u64,
+    n_paths: usize,
+    s0: f64,
+    k: f64,
+    drift_t: f64,
+    vol_t: f64,
+    discount: f64,
+) -> ControlVariateMoments {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut moments = ControlVariateMoments::default();
+
+    for _ in 0..n_paths {
+        let z = rng.standard_normal();
+        let s_t = s0 * (drift_t + vol_t * z).exp();
+        let control = discount * s_t;
+        let payoff = (s_t - k).max(0.0) * discount;
+        moments.record(payoff, control);
+    }
+
+    moments
+}
+
+fn simulate_stepwise_control_variate_chunk(
+    seed: u64,
+    n_paths: usize,
+    n_steps: usize,
+    s0: f64,
+    k: f64,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> ControlVariateMoments {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut moments = ControlVariateMoments::default();
+
+    for _ in 0..n_paths {
+        let mut log_s_t = s0.ln();
+        for _ in 0..n_steps {
+            let z = rng.standard_normal();
+            log_s_t += drift_dt + vol_dt * z;
+        }
+
+        let s_t = log_s_t.exp();
+        let control = discount * s_t;
+        let payoff = (s_t - k).max(0.0) * discount;
+        moments.record(payoff, control);
+    }
+
+    moments
 }
 
 fn summarize_payoffs(n_paths: usize, payoff_sum: f64, payoff_sq_sum: f64) -> EuropeanCallResult {
@@ -535,6 +715,41 @@ fn summarize_block_estimates(
     let stderr = variance.max(0.0).sqrt() / n.sqrt();
 
     EuropeanCallResult { price, stderr }
+}
+
+fn summarize_control_variate(
+    moments: ControlVariateMoments,
+    control_expectation: f64,
+) -> EuropeanCallResult {
+    let n = moments.sample_count as f64;
+    let payoff_mean = moments.payoff_sum / n;
+    let control_mean = moments.control_sum / n;
+    let control_var = (moments.control_sq_sum / n) - (control_mean * control_mean);
+
+    if control_var <= f64::EPSILON {
+        return summarize_payoffs(
+            moments.sample_count,
+            moments.payoff_sum,
+            moments.payoff_sq_sum,
+        );
+    }
+
+    let payoff_control_cov = (moments.payoff_control_cross_sum / n) - (payoff_mean * control_mean);
+    let beta = payoff_control_cov / control_var;
+    let adjusted_mean = payoff_mean - beta * (control_mean - control_expectation);
+    let adjusted_sq_mean = (moments.payoff_sq_sum / n)
+        - (2.0 * beta)
+            * ((moments.payoff_control_cross_sum / n) - control_expectation * payoff_mean)
+        + (beta * beta)
+            * ((moments.control_sq_sum / n) - (2.0 * control_expectation * control_mean)
+                + (control_expectation * control_expectation));
+    let adjusted_var = (adjusted_sq_mean - (adjusted_mean * adjusted_mean)).max(0.0);
+    let stderr = adjusted_var.sqrt() / n.sqrt();
+
+    EuropeanCallResult {
+        price: adjusted_mean,
+        stderr,
+    }
 }
 
 fn european_call_payoff_from_shock(
@@ -599,6 +814,54 @@ fn simulate_stepwise_antithetic(cfg: &EuropeanCallConfig) -> EuropeanCallResult 
     }
 
     summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+}
+
+fn simulate_terminal_control_variate(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
+    let drift_t = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * cfg.t;
+    let vol_t = cfg.sigma * cfg.t.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let thread_count = resolved_thread_count(cfg.n_threads);
+
+    let moments = if thread_count <= 1 || cfg.n_paths < thread_count * 2_000 {
+        simulate_terminal_control_variate_chunk(
+            cfg.seed,
+            cfg.n_paths,
+            cfg.s0,
+            cfg.k,
+            drift_t,
+            vol_t,
+            discount,
+        )
+    } else {
+        simulate_terminal_control_variate_parallel(cfg, thread_count, drift_t, vol_t, discount)
+    };
+
+    summarize_control_variate(moments, cfg.s0)
+}
+
+fn simulate_stepwise_control_variate(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
+    let dt = cfg.t / cfg.n_steps as f64;
+    let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
+    let vol_dt = cfg.sigma * dt.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let thread_count = resolved_thread_count(cfg.n_threads);
+
+    let moments = if thread_count <= 1 || cfg.n_paths < thread_count * 2_000 {
+        simulate_stepwise_control_variate_chunk(
+            cfg.seed,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.s0,
+            cfg.k,
+            drift_dt,
+            vol_dt,
+            discount,
+        )
+    } else {
+        simulate_stepwise_control_variate_parallel(cfg, thread_count, drift_dt, vol_dt, discount)
+    };
+
+    summarize_control_variate(moments, cfg.s0)
 }
 
 fn resolved_thread_count(requested_threads: usize) -> usize {

@@ -12,17 +12,24 @@ From `latest-results.json`:
 - `mc_cpu_european_call_rust` (`stepwise_paths`): tracked as the fair CPU baseline
 - `mc_cpu_european_call_rust_antithetic` (`stepwise_paths_antithetic`): tracked as the first variance-reduced CPU path
 - `mc_cpu_european_call_rust_antithetic_quality`: reports `stderr_ratio_vs_standard`
+- `mc_cpu_european_call_rust_control_variate` (`stepwise_paths_control_variate`): tracked as the strongest current quality-improving CPU path
+- `mc_cpu_european_call_rust_control_variate_quality`: reports `stderr_ratio_vs_standard`
 - `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): tracked as the specialized fast path
 - `mc_cpu_european_call_rust_terminal_antithetic_quality`: reports `stderr_ratio_vs_standard`
+- `mc_cpu_european_call_rust_terminal_control_variate_quality`: reports `stderr_ratio_vs_standard`
 
 From `release-results.json`:
 
-- `mc_cpu_european_call_rust` (`stepwise_paths`): `18.700 ms` per run
-- `mc_cpu_european_call_rust_antithetic` (`stepwise_paths_antithetic`): `38.889 ms` per run
+- `mc_cpu_european_call_rust` (`stepwise_paths`): `18.520 ms` per run
+- `mc_cpu_european_call_rust_antithetic` (`stepwise_paths_antithetic`): `35.972 ms` per run
 - `mc_cpu_european_call_rust_antithetic_quality`: `stderr_ratio_vs_standard = 0.747`
-- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.790 ms` per run
-- `mc_cpu_european_call_rust_terminal_antithetic` (`terminal_distribution_antithetic`): `1.646 ms` per run
+- `mc_cpu_european_call_rust_control_variate` (`stepwise_paths_control_variate`): `18.703 ms` per run
+- `mc_cpu_european_call_rust_control_variate_quality`: `stderr_ratio_vs_standard = 0.411`
+- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.756 ms` per run
+- `mc_cpu_european_call_rust_terminal_antithetic` (`terminal_distribution_antithetic`): `1.643 ms` per run
 - `mc_cpu_european_call_rust_terminal_antithetic_quality`: `stderr_ratio_vs_standard = 0.741`
+- `mc_cpu_european_call_rust_terminal_control_variate`: `0.774 ms` per run
+- `mc_cpu_european_call_rust_terminal_control_variate_quality`: `stderr_ratio_vs_standard = 0.412`
 - `mc_cpu_european_call_numpy` (`stepwise_paths`): compare in `release-results.json`
 - `mc_cpu_european_call_numba` (`stepwise_paths`): compare in `release-results.json`
 
