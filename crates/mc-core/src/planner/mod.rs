@@ -238,6 +238,35 @@ pub fn plan_execution(
     plan_with_auto_backend(normalized, features, backend_support)
 }
 
+pub fn explain_execution_plan(plan: &ExecutionPlan) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("selected_backend={:?}", plan.backend));
+    lines.push(format!(
+        "planner_mode={:?} workload=n_paths:{} n_steps:{}",
+        plan.planner_mode, plan.n_paths, plan.n_steps
+    ));
+
+    if !plan.decision_report.reasons.is_empty() {
+        lines.push(format!(
+            "reasons={}",
+            plan.decision_report.reasons.join("; ")
+        ));
+    }
+
+    if !plan.decision_report.rejected_backends.is_empty() {
+        let rejected = plan
+            .decision_report
+            .rejected_backends
+            .iter()
+            .map(|entry| format!("{:?}: {}", entry.backend, entry.reason))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        lines.push(format!("rejected={rejected}"));
+    }
+
+    lines.join("\n")
+}
+
 fn plan_with_requested_backend(
     normalized: NormalizedRunConfig,
     features: FeatureSummary,

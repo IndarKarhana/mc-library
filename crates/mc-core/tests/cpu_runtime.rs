@@ -1,4 +1,8 @@
-use mc_core::{european_call_price_mc_cpu, EuropeanCallConfig, MonteCarloRng};
+use mc_core::{
+    european_call_price_mc_cpu, european_call_price_mc_cpu_stepwise,
+    european_call_price_mc_cpu_terminal, EuropeanCallConfig, EuropeanCallMethod,
+    EuropeanCallPricer, MonteCarloRng,
+};
 
 #[test]
 fn rng_is_deterministic_for_same_seed() {
@@ -42,6 +46,35 @@ fn european_call_mc_is_deterministic_for_parallel_seed() {
 }
 
 #[test]
+fn european_call_terminal_method_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 33,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_terminal(&cfg);
+    let r2 = european_call_price_mc_cpu_terminal(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn european_call_stepwise_method_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 44,
+        n_threads: 4,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_stepwise(&cfg);
+    let r2 = european_call_price_mc_cpu_stepwise(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
 fn european_call_mc_outputs_sane_values() {
     let cfg = EuropeanCallConfig {
         n_paths: 30_000,
@@ -54,6 +87,61 @@ fn european_call_mc_outputs_sane_values() {
     assert!(result.price >= 0.0);
     assert!(result.stderr >= 0.0);
     assert!(result.price < cfg.s0 * 2.0);
+}
+
+#[test]
+fn european_call_stepwise_is_close_to_black_scholes_price() {
+    let cfg = EuropeanCallConfig {
+        s0: 100.0,
+        k: 100.0,
+        r: 0.03,
+        sigma: 0.2,
+        t: 1.0,
+        n_paths: 200_000,
+        n_steps: 64,
+        seed: 2027,
+        n_threads: 4,
+    };
+
+    let mc = european_call_price_mc_cpu_stepwise(&cfg);
+    let analytic = black_scholes_call(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t);
+    let error = (mc.price - analytic).abs();
+
+    assert!(
+        error <= (6.0 * mc.stderr + 1e-9),
+        "stepwise mc price deviates too much from analytic price: mc={} analytic={} stderr={}",
+        mc.price,
+        analytic,
+        mc.stderr
+    );
+}
+
+#[test]
+fn pricer_builder_supports_expressive_configuration() {
+    let result = EuropeanCallPricer::new()
+        .s0(100.0)
+        .strike(100.0)
+        .rate(0.03)
+        .volatility(0.2)
+        .maturity(1.0)
+        .paths(50_000)
+        .steps(64)
+        .seed(123)
+        .threads(2)
+        .method(EuropeanCallMethod::StepwisePaths)
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn auto_and_terminal_pricer_methods_match_for_european_call() {
+    let pricer = EuropeanCallPricer::new().paths(80_000).steps(64).seed(321);
+
+    let auto = pricer.clone().price();
+    let terminal = pricer.terminal().price();
+    assert_eq!(auto, terminal);
 }
 
 #[test]

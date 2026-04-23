@@ -3,9 +3,8 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mc_core::{
-    plan_execution, BackendDecisionReport, BackendExecutionInput, BackendId, BackendPreference,
-    BackendSupportReport, CpuNativeBackend, EuropeanCallConfig, ExecutionPlan, FeatureSummary,
-    PlannerMode, RejectedBackend, RunConfig, RuntimeBackend,
+    european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal, plan_execution,
+    BackendId, BackendPreference, BackendSupportReport, EuropeanCallConfig, PlannerMode, RunConfig,
 };
 use mc_schema::{
     validate_simulation_spec, AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec,
@@ -26,7 +25,8 @@ pub fn run_default_benchmarks() -> BenchmarkReport {
         benchmark_schema_validation(&spec, 10_000),
         benchmark_planner_overhead(&spec, 10_000),
         benchmark_planner_choice_accuracy(),
-        benchmark_mc_rust_cpu(MC_REPEATS),
+        benchmark_mc_rust_cpu_stepwise(MC_REPEATS),
+        benchmark_mc_rust_cpu_terminal(MC_REPEATS),
     ];
 
     results.extend(benchmark_python_competitors(
@@ -83,7 +83,7 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
     }
 
     out.push_str(&format!(
-        "Current Rust baseline (`mc_cpu_european_call_rust`): `{:.3} ms`\n\n",
+        "Current Rust fair baseline (`mc_cpu_european_call_rust`, step-wise): `{:.3} ms`\n\n",
         rust
     ));
 
@@ -95,9 +95,21 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
     if slower_than.is_empty() {
         out.push_str("Status: Rust currently leads available CPU baselines for this workload.\n\n");
         out.push_str("Maintain lead plan:\n");
+        out.push_str("- Keep the step-wise benchmark as the primary competitive claim.\n");
         out.push_str("- Keep RNG and loop hot path allocation-free.\n");
         out.push_str("- Add release-mode benchmark gates for MC runtime.\n");
         out.push_str("- Expand competitor matrix to GPU baselines (JAX/CuPy/PyTorch) when hardware is available.\n");
+        if let Some(terminal_runtime) = report
+            .results
+            .iter()
+            .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_terminal")
+            .and_then(|r| r.runtime_ms())
+        {
+            out.push_str(&format!(
+                "- Preserve the specialized terminal-distribution fast path (`{:.3} ms`) as a separate optimization track.\n",
+                terminal_runtime
+            ));
+        }
         return out;
     }
 
@@ -111,12 +123,15 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
     }
 
     out.push_str("\nAction plan to close the gap:\n");
+    out.push_str("- Optimize the fair step-wise kernel before tuning specialized fast paths.\n");
     out.push_str(
         "- Introduce SIMD-friendly normal generation and batched exponentials in CPU runtime.\n",
     );
-    out.push_str("- Add multithreaded path partitioning with deterministic stream splitting.\n");
+    out.push_str(
+        "- Keep deterministic multithreaded path partitioning with stable reduction order.\n",
+    );
     out.push_str("- Benchmark release profile (`--release`) and optimize hottest functions with profiler evidence.\n");
-    out.push_str("- Add workload-specialized kernels for common cases (`n_steps` fixed, drift/vol precomputed).\n");
+    out.push_str("- Keep workload-specialized kernels as explicit secondary benchmarks, not as the sole competitiveness claim.\n");
 
     out
 }
@@ -138,6 +153,7 @@ fn benchmark_schema_validation(spec: &SimulationSpec, iterations: usize) -> Benc
         benchmark_version: "0.1".to_string(),
         implementation: "mc-schema::validate_simulation_spec".to_string(),
         backend: "cpu_native".to_string(),
+        methodology: None,
         planner_mode: "n/a".to_string(),
         iterations,
         total_runtime_ms: elapsed.as_secs_f64() * 1_000.0,
@@ -182,6 +198,7 @@ fn benchmark_planner_overhead(spec: &SimulationSpec, iterations: usize) -> Bench
         benchmark_version: "0.1".to_string(),
         implementation: "mc-core::plan_execution".to_string(),
         backend: "planner".to_string(),
+        methodology: None,
         planner_mode: "balanced".to_string(),
         iterations,
         total_runtime_ms: elapsed.as_secs_f64() * 1_000.0,
@@ -287,6 +304,7 @@ fn benchmark_planner_choice_accuracy() -> BenchmarkResult {
         benchmark_version: "0.1".to_string(),
         implementation: "mc-core::plan_execution".to_string(),
         backend: "planner".to_string(),
+        methodology: None,
         planner_mode: "balanced".to_string(),
         iterations,
         total_runtime_ms: elapsed.as_secs_f64() * 1_000.0,
@@ -297,66 +315,80 @@ fn benchmark_planner_choice_accuracy() -> BenchmarkResult {
     }
 }
 
-fn benchmark_mc_rust_cpu(repeats: usize) -> BenchmarkResult {
+fn benchmark_mc_rust_cpu_stepwise(repeats: usize) -> BenchmarkResult {
     let cfg = EuropeanCallConfig {
         n_paths: MC_PATHS,
         n_steps: MC_STEPS,
         ..EuropeanCallConfig::default()
     };
 
-    let backend = CpuNativeBackend::new();
-    let device = backend
-        .discover_devices()
-        .into_iter()
-        .next()
-        .expect("cpu backend should always expose host device");
-    let artifact = backend
-        .compile(
-            &ExecutionPlan {
-                backend: BackendId::CpuNative,
-                planner_mode: PlannerMode::Balanced,
-                n_paths: cfg.n_paths,
-                n_steps: cfg.n_steps,
-                features: FeatureSummary::default(),
-                decision_report: BackendDecisionReport {
-                    selected_backend: BackendId::CpuNative,
-                    reasons: vec!["benchmark direct cpu execution".to_string()],
-                    rejected_backends: vec![RejectedBackend {
-                        backend: BackendId::NvidiaCuda,
-                        reason: "not part of direct cpu benchmark path".to_string(),
-                    }],
-                },
-            },
-            &device,
-        )
-        .expect("cpu backend compile for benchmark should succeed");
-
     let mut runtimes = Vec::with_capacity(repeats);
     let mut prices = Vec::with_capacity(repeats);
-    let mut stderrs = Vec::with_capacity(repeats);
 
     for i in 0..repeats {
         let mut cfg_i = cfg;
         cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_stepwise(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
 
-        let run_output = backend
-            .execute(&artifact, &BackendExecutionInput::EuropeanCall(cfg_i))
-            .expect("cpu backend execute for benchmark should succeed");
-
-        runtimes.push(run_output.runtime_ms);
-        prices.push(run_output.price);
-        stderrs.push(run_output.stderr);
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
     }
 
     let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
     let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
-    let _avg_stderr = stderrs.iter().sum::<f64>() / stderrs.len() as f64;
 
     BenchmarkResult {
         benchmark_name: "mc_cpu_european_call_rust".to_string(),
         benchmark_version: "0.1".to_string(),
-        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
         backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_terminal(repeats: usize) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        ..EuropeanCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_terminal(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_terminal".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_terminal".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("terminal_distribution".to_string()),
         planner_mode: "n/a".to_string(),
         iterations: repeats,
         total_runtime_ms: avg_runtime_ms * repeats as f64,
@@ -395,6 +427,7 @@ fn benchmark_python_competitors(
             benchmark_version: "0.1".to_string(),
             implementation: "python_cpu_baselines.py".to_string(),
             backend: "external".to_string(),
+            methodology: None,
             planner_mode: "n/a".to_string(),
             iterations: 1,
             total_runtime_ms: 0.0,
@@ -411,6 +444,7 @@ fn benchmark_python_competitors(
             benchmark_version: "0.1".to_string(),
             implementation: "python_cpu_baselines.py".to_string(),
             backend: "external".to_string(),
+            methodology: None,
             planner_mode: "n/a".to_string(),
             iterations: 1,
             total_runtime_ms: 0.0,
@@ -428,6 +462,7 @@ fn benchmark_python_competitors(
             benchmark_version: "0.1".to_string(),
             implementation: "python_cpu_baselines.py".to_string(),
             backend: "external".to_string(),
+            methodology: None,
             planner_mode: "n/a".to_string(),
             iterations: 1,
             total_runtime_ms: 0.0,
@@ -444,11 +479,21 @@ fn benchmark_python_competitors(
         .map(|entry| {
             if entry.available {
                 let runtime_ms = entry.runtime_ms.unwrap_or(0.0);
+                let methodology = entry
+                    .methodology
+                    .unwrap_or_else(|| "stepwise_paths".to_string());
+                let benchmark_name = match methodology.as_str() {
+                    "terminal_distribution" => {
+                        format!("mc_cpu_european_call_{}_terminal", entry.library)
+                    }
+                    _ => format!("mc_cpu_european_call_{}", entry.library),
+                };
                 BenchmarkResult {
-                    benchmark_name: format!("mc_cpu_european_call_{}", entry.library),
+                    benchmark_name,
                     benchmark_version: "0.1".to_string(),
                     implementation: format!("python::{0}", entry.library),
                     backend: "cpu_external".to_string(),
+                    methodology: Some(methodology),
                     planner_mode: "n/a".to_string(),
                     iterations: repeats,
                     total_runtime_ms: runtime_ms * repeats as f64,
@@ -462,11 +507,24 @@ fn benchmark_python_competitors(
                     metric_value: entry.price,
                 }
             } else {
+                let methodology = entry.methodology.clone();
                 BenchmarkResult {
-                    benchmark_name: format!("mc_cpu_european_call_{}_unavailable", entry.library),
+                    benchmark_name: if let Some(ref methodology) = methodology {
+                        if methodology == "terminal_distribution" {
+                            format!(
+                                "mc_cpu_european_call_{}_terminal_unavailable",
+                                entry.library
+                            )
+                        } else {
+                            format!("mc_cpu_european_call_{}_unavailable", entry.library)
+                        }
+                    } else {
+                        format!("mc_cpu_european_call_{}_unavailable", entry.library)
+                    },
                     benchmark_version: "0.1".to_string(),
                     implementation: format!("python::{}", entry.library),
                     backend: "cpu_external".to_string(),
+                    methodology,
                     planner_mode: "n/a".to_string(),
                     iterations: 1,
                     total_runtime_ms: 0.0,
@@ -499,6 +557,7 @@ struct PythonBenchmarkPayload {
 struct PythonLibraryResult {
     library: String,
     available: bool,
+    methodology: Option<String>,
     runtime_ms: Option<f64>,
     price: Option<f64>,
     #[allow(dead_code)]

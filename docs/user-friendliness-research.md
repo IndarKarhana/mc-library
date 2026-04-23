@@ -52,9 +52,11 @@ This document summarizes what established libraries do well for usability and ho
 ## Implemented UX Improvements (Current)
 
 - `SimulationSpecBuilder` for ergonomic schema creation
+- `EuropeanCallPricer` for expressive builder-style CPU pricing configuration
 - diagnostic suggestions via `Diagnostic::with_suggestion`
 - compatibility validation with explicit unsupported-version errors
 - benchmark reporting that marks unavailable competitor libraries instead of silently omitting
+- benchmark methodology metadata so specialized and fair comparisons are clearly separated
 
 ## Next UX Implementation Steps
 

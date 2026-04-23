@@ -20,6 +20,7 @@ from typing import Any
 @dataclass
 class LibraryResult:
     library: str
+    methodology: str | None
     available: bool
     runtime_ms: float | None
     price: float | None
@@ -64,6 +65,47 @@ def benchmark_numpy(n_paths: int, n_steps: int, repeats: int, seed: int) -> Libr
 
     return LibraryResult(
         library="numpy",
+        methodology="stepwise_paths",
+        available=True,
+        runtime_ms=sum(times) / len(times),
+        price=sum(prices) / len(prices),
+        stderr=sum(stderrs) / len(stderrs),
+        note=None,
+    )
+
+
+def benchmark_numpy_terminal(
+    n_paths: int, repeats: int, seed: int
+) -> LibraryResult:
+    import numpy as np
+
+    drift_t = (0.03 - 0.5 * 0.2 * 0.2) * 1.0
+    vol_t = 0.2 * math.sqrt(1.0)
+    discount = math.exp(-0.03 * 1.0)
+
+    times: list[float] = []
+    prices: list[float] = []
+    stderrs: list[float] = []
+
+    for rep in range(repeats):
+        rng = np.random.default_rng(seed + rep)
+
+        start = time.perf_counter()
+        z = rng.standard_normal(n_paths)
+        s_t = 100.0 * np.exp(drift_t + vol_t * z)
+        payoff = np.maximum(s_t - 100.0, 0.0) * discount
+        elapsed = (time.perf_counter() - start) * 1000.0
+
+        price = float(np.mean(payoff))
+        stderr = float(np.std(payoff, ddof=0) / np.sqrt(n_paths))
+
+        times.append(elapsed)
+        prices.append(price)
+        stderrs.append(stderr)
+
+    return LibraryResult(
+        library="numpy",
+        methodology="terminal_distribution",
         available=True,
         runtime_ms=sum(times) / len(times),
         price=sum(prices) / len(prices),
@@ -119,6 +161,7 @@ def benchmark_numba(n_paths: int, n_steps: int, repeats: int, seed: int) -> Libr
 
     return LibraryResult(
         library="numba",
+        methodology="stepwise_paths",
         available=True,
         runtime_ms=sum(times) / len(times),
         price=sum(prices) / len(prices),
@@ -127,9 +170,61 @@ def benchmark_numba(n_paths: int, n_steps: int, repeats: int, seed: int) -> Libr
     )
 
 
-def unavailable(name: str, note: str) -> LibraryResult:
+def benchmark_numba_terminal(n_paths: int, repeats: int, seed: int) -> LibraryResult:
+    import numba as nb
+    import numpy as np
+
+    @nb.njit(cache=True)
+    def _price(seed_local: int, n_paths_local: int) -> tuple[float, float]:
+        np.random.seed(seed_local)
+        drift_t = (0.03 - 0.5 * 0.2 * 0.2) * 1.0
+        vol_t = 0.2 * math.sqrt(1.0)
+        discount = math.exp(-0.03 * 1.0)
+
+        payoff_sum = 0.0
+        payoff_sq_sum = 0.0
+        for _ in range(n_paths_local):
+            z = np.random.normal()
+            s_t = 100.0 * math.exp(drift_t + vol_t * z)
+            payoff = max(s_t - 100.0, 0.0) * discount
+            payoff_sum += payoff
+            payoff_sq_sum += payoff * payoff
+
+        n = float(n_paths_local)
+        price = payoff_sum / n
+        var = payoff_sq_sum / n - price * price
+        stderr = math.sqrt(max(var, 0.0)) / math.sqrt(n)
+        return price, stderr
+
+    _price(seed, 4_000)
+
+    times: list[float] = []
+    prices: list[float] = []
+    stderrs: list[float] = []
+
+    for rep in range(repeats):
+        start = time.perf_counter()
+        price, stderr = _price(seed + rep, n_paths)
+        elapsed = (time.perf_counter() - start) * 1000.0
+        times.append(float(elapsed))
+        prices.append(float(price))
+        stderrs.append(float(stderr))
+
+    return LibraryResult(
+        library="numba",
+        methodology="terminal_distribution",
+        available=True,
+        runtime_ms=sum(times) / len(times),
+        price=sum(prices) / len(prices),
+        stderr=sum(stderrs) / len(stderrs),
+        note="execution-only timing after JIT warm-up",
+    )
+
+
+def unavailable(name: str, methodology: str | None, note: str) -> LibraryResult:
     return LibraryResult(
         library=name,
+        methodology=methodology,
         available=False,
         runtime_ms=None,
         price=None,
@@ -150,24 +245,33 @@ def main() -> int:
 
     if has_module("numpy"):
         results.append(benchmark_numpy(args.paths, args.steps, args.repeats, args.seed))
+        results.append(benchmark_numpy_terminal(args.paths, args.repeats, args.seed))
     else:
-        results.append(unavailable("numpy", "package not installed"))
+        results.append(unavailable("numpy", "stepwise_paths", "package not installed"))
+        results.append(
+            unavailable("numpy", "terminal_distribution", "package not installed")
+        )
 
     if has_module("numba"):
         results.append(benchmark_numba(args.paths, args.steps, args.repeats, args.seed))
+        results.append(benchmark_numba_terminal(args.paths, args.repeats, args.seed))
     else:
-        results.append(unavailable("numba", "package not installed"))
+        results.append(unavailable("numba", "stepwise_paths", "package not installed"))
+        results.append(
+            unavailable("numba", "terminal_distribution", "package not installed")
+        )
 
     for gpu_lib in ("jax", "cupy", "torch"):
         if has_module(gpu_lib):
             results.append(
                 unavailable(
                     gpu_lib,
+                    None,
                     "detected but GPU-targeted benchmark path not implemented in this CPU script",
                 )
             )
         else:
-            results.append(unavailable(gpu_lib, "package not installed"))
+            results.append(unavailable(gpu_lib, None, "package not installed"))
 
     payload: dict[str, Any] = {
         "environment": {

@@ -20,6 +20,19 @@ The benchmark plan exists to:
 4. Record compile overhead separately from steady-state runtime
 5. Use the same simulation semantics across implementations
 6. Keep benchmark inputs versioned and reproducible
+7. Distinguish specialized fast paths from general simulation paths
+
+## 2.1 Apples-To-Apples Rule
+
+Benchmark claims are only competitive claims when the compared implementations use the same simulation semantics.
+
+Examples:
+
+- direct terminal-distribution sampling must be compared against direct terminal-distribution sampling
+- step-wise path simulation must be compared against step-wise path simulation
+- execution-only timing must not be mixed with compile-plus-execution timing without explicit labeling
+
+Benchmark outputs should eventually tag each result with methodology metadata so specialized wins are visible but not confused with general-runtime wins.
 
 ## 3. Benchmark Categories
 
@@ -118,6 +131,11 @@ Purpose:
 - simple path-parallel workload
 - good early correctness and throughput benchmark
 
+This workload must be split into two benchmark modes:
+
+- terminal-distribution mode
+- step-wise path-simulation mode
+
 Outputs:
 
 - estimated option price
@@ -129,6 +147,11 @@ Parameters to sweep:
 - `n_paths`
 - `n_steps`
 - dtype
+
+Rules:
+
+- terminal-distribution mode may ignore `n_steps` only if every compared implementation uses the same terminal formulation
+- step-wise mode must materially execute the configured `n_steps`
 
 ## 8.2 Barrier option path simulation
 

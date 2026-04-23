@@ -6,6 +6,7 @@ pub struct BenchmarkResult {
     pub benchmark_version: String,
     pub implementation: String,
     pub backend: String,
+    pub methodology: Option<String>,
     pub planner_mode: String,
     pub iterations: usize,
     pub total_runtime_ms: f64,

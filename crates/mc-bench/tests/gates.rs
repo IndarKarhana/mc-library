@@ -44,6 +44,7 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         rust_mc.total_runtime_ms > 0.0,
         "mc_cpu_european_call_rust gate failed: expected benchmark presence and positive runtime"
     );
+    assert_eq!(rust_mc.methodology.as_deref(), Some("stepwise_paths"));
 
     if let Some(numpy) = report
         .results
@@ -70,4 +71,10 @@ fn benchmark_gates_hold_for_current_internal_suite() {
             numba.per_iteration_us
         );
     }
+
+    let rust_terminal = find_metric("mc_cpu_european_call_rust_terminal", &report);
+    assert!(
+        rust_terminal.total_runtime_ms > 0.0,
+        "mc_cpu_european_call_rust_terminal gate failed: expected benchmark presence and positive runtime"
+    );
 }

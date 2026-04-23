@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use mc_core::{
-    extract_features, normalize_run_config, plan_execution, BackendId, BackendPreference,
-    BackendSupportReport, PlannerError, PlannerMode, RunConfig,
+    explain_execution_plan, extract_features, normalize_run_config, plan_execution, BackendId,
+    BackendPreference, BackendSupportReport, PlannerError, PlannerMode, RunConfig,
 };
 use mc_schema::{
     AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec, RandomVarSpec, ReductionSpec,
@@ -220,4 +220,24 @@ fn auto_planner_falls_back_to_apple_when_nvidia_is_unavailable() {
     .expect("expected planner to fall back to Apple Metal");
 
     assert_eq!(plan.backend, BackendId::AppleMetal);
+}
+
+#[test]
+fn explain_execution_plan_includes_backend_and_reasons() {
+    let spec = sample_spec(false);
+    let plan = plan_execution(
+        &spec,
+        RunConfig {
+            n_paths: 1_000_000,
+            n_steps: 100,
+            planner_mode: PlannerMode::Balanced,
+            backend_preference: BackendPreference::Auto,
+        },
+        &support_all(),
+    )
+    .expect("expected plan to be created");
+
+    let explanation = explain_execution_plan(&plan);
+    assert!(explanation.contains("selected_backend=NvidiaCuda"));
+    assert!(explanation.contains("reasons="));
 }

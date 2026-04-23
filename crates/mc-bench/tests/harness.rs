@@ -56,4 +56,16 @@ fn rust_mc_benchmark_is_present() {
         .find(|r| r.benchmark_name == "mc_cpu_european_call_rust")
         .expect("rust MC benchmark should be present");
     assert!(rust_mc.total_runtime_ms > 0.0);
+    assert_eq!(rust_mc.methodology.as_deref(), Some("stepwise_paths"));
+
+    let rust_terminal = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_terminal")
+        .expect("terminal MC benchmark should be present");
+    assert!(rust_terminal.total_runtime_ms > 0.0);
+    assert_eq!(
+        rust_terminal.methodology.as_deref(),
+        Some("terminal_distribution")
+    );
 }

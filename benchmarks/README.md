@@ -6,18 +6,24 @@ This directory stores generated benchmark reports.
 
 From `latest-results.json`:
 
-- `schema_validation`: `8.380 us` per iteration (`119,336.85 ops/sec`)
-- `planner_overhead_auto`: `0.415 us` per iteration (`2,408,163.48 ops/sec`)
+- `schema_validation`: `8.348 us` per iteration (`119,793.12 ops/sec`)
+- `planner_overhead_auto`: `0.419 us` per iteration (`2,388,938.83 ops/sec`)
 - `planner_choice_accuracy`: `100.0%` on the internal scenario set
-- `mc_cpu_european_call_rust`: `1.234 ms` per run (`81,004,455.25 paths/sec`)
-- `mc_cpu_european_call_numpy`: `81.402 ms` per run (`1,228,476.70 paths/sec`)
-- `mc_cpu_european_call_numba`: `227.355 ms` per run (`439,841.34 paths/sec`)
+- `mc_cpu_european_call_rust` (`stepwise_paths`): `70.191 ms` per run (`1,424,681.54 paths/sec`)
+- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `1.409 ms` per run (`70,983,521.65 paths/sec`)
+- `mc_cpu_european_call_numpy` (`stepwise_paths`): `101.711 ms` per run (`983,181.72 paths/sec`)
+- `mc_cpu_european_call_numpy_terminal` (`terminal_distribution`): `1.350 ms` per run (`74,093,868.58 paths/sec`)
+- `mc_cpu_european_call_numba` (`stepwise_paths`): `251.131 ms` per run (`398,198.31 paths/sec`)
+- `mc_cpu_european_call_numba_terminal` (`terminal_distribution`): `3.659 ms` per run (`27,328,524.72 paths/sec`)
 
 From `release-results.json`:
 
-- `mc_cpu_european_call_rust`: `0.518 ms` per run (`193,153,854.77 paths/sec`)
-- `mc_cpu_european_call_numpy`: `88.099 ms` per run (`1,135,090.43 paths/sec`)
-- `mc_cpu_european_call_numba`: `227.294 ms` per run (`439,959.22 paths/sec`)
+- `mc_cpu_european_call_rust` (`stepwise_paths`): `21.702 ms` per run (`4,607,846.60 paths/sec`)
+- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.987 ms` per run (`101,317,122.59 paths/sec`)
+- `mc_cpu_european_call_numpy` (`stepwise_paths`): `158.613 ms` per run (`630,465.79 paths/sec`)
+- `mc_cpu_european_call_numpy_terminal` (`terminal_distribution`): `2.336 ms` per run (`42,815,856.28 paths/sec`)
+- `mc_cpu_european_call_numba` (`stepwise_paths`): `360.417 ms` per run (`277,456.52 paths/sec`)
+- `mc_cpu_european_call_numba_terminal` (`terminal_distribution`): `5.170 ms` per run (`19,343,554.61 paths/sec`)
 
 ## Competitiveness Output
 

@@ -11,10 +11,13 @@ pub use backend::{
     ReproSupport, RunOutput, RuntimeBackend, SupportReport,
 };
 pub use planner::{
-    extract_features, normalize_run_config, plan_execution, BackendDecisionReport, BackendId,
-    BackendPreference, BackendSupportReport, ExecutionPlan, FeatureSummary, NormalizedRunConfig,
-    PlannerError, PlannerMode, RejectedBackend, RunConfig, SupportLevel,
+    explain_execution_plan, extract_features, normalize_run_config, plan_execution,
+    BackendDecisionReport, BackendId, BackendPreference, BackendSupportReport, ExecutionPlan,
+    FeatureSummary, NormalizedRunConfig, PlannerError, PlannerMode, RejectedBackend, RunConfig,
+    SupportLevel,
 };
 pub use runtime::{
-    european_call_price_mc_cpu, EuropeanCallConfig, EuropeanCallResult, MonteCarloRng,
+    european_call_price_mc_cpu, european_call_price_mc_cpu_stepwise,
+    european_call_price_mc_cpu_terminal, european_call_price_mc_cpu_with_method,
+    EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer, EuropeanCallResult, MonteCarloRng,
 };

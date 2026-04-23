@@ -37,6 +37,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Implement baseline execution loop for path/step simulation (European call workload).
 - `done` Implement baseline reductions (mean and standard error for payoff).
 - `done` Validate numeric correctness against benchmark fixtures (analytic Black-Scholes check).
+- `done` Add explicit general CPU step-wise execution path separate from specialized terminal-distribution fast path.
 
 ## Phase 4: NVIDIA Runtime
 
@@ -62,6 +63,9 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Define performance gates and regression thresholds.
 - `done` Add release-profile benchmark output for stronger competitiveness tracking.
 - `done` Add competitiveness gate checks (Rust faster than available NumPy/Numba CPU baselines).
+- `done` Split European-call benchmarks into fair terminal-distribution and true step-wise benchmark families.
+- `done` Add benchmark methodology metadata so specialized fast paths are not confused with general-runtime comparisons.
+- `todo` Calibrate planner choice quality against measured backend winners, not only hand-authored expected scenarios.
 
 ## Phase 7: Agent Experience and Integration
 
@@ -70,7 +74,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add a function catalog for public and future tool-facing surfaces.
 - `done` Add an agent integration plan for future tool/plugin wrapping.
 - `todo` Add machine-readable tool manifest and schema export for stable agent integration.
-- `todo` Add explain-plan and run-manifest helpers as first-class agent-facing surfaces.
+- `in-progress` Add explain-plan and run-manifest helpers as first-class agent-facing surfaces.
 - `todo` Add Python-facing agent wrappers that preserve typed, explainable contracts.
 
 ## Ongoing Engineering Quality Track

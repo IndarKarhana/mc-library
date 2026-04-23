@@ -63,6 +63,11 @@ Higher-level runtime calls once backend contracts, manifests, and cross-backend 
 4. Add Python-facing wrappers that preserve the same structured semantics.
 5. Add a tool manifest or JSON-schema export for agent wrappers once the public surface stabilizes.
 
+Current status:
+
+- `explain_execution_plan` exists as the first lightweight planner explanation helper
+- structured run manifests are still pending
+
 ## Tool-Readiness Checklist
 
 A surface is ready to be wrapped as an agent tool when:

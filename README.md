@@ -27,6 +27,29 @@ This repository is in active build-out.
 - `crates/mc-core`: planner interfaces, backend contract, CPU runtime, and execution planning
 - `crates/mc-bench`: benchmark harness and benchmark result schema
 
+## Expressive API Example
+
+```rust
+use mc_core::{EuropeanCallMethod, EuropeanCallPricer};
+
+let result = EuropeanCallPricer::new()
+    .s0(100.0)
+    .strike(100.0)
+    .rate(0.03)
+    .volatility(0.2)
+    .maturity(1.0)
+    .paths(100_000)
+    .steps(64)
+    .seed(42)
+    .method(EuropeanCallMethod::StepwisePaths)
+    .price();
+```
+
+The current CPU runtime exposes both:
+
+- a fair step-wise path benchmark path
+- a specialized terminal-distribution fast path
+
 ## Running Tests
 
 ```bash
@@ -50,6 +73,15 @@ Competitive benchmark policy is documented in `docs/competitive-benchmark-policy
 User-experience research and UX implementation plan is in `docs/user-friendliness-research.md`.
 Agent integration guidance is in `docs/agent-integration-plan.md`.
 Public function inventory is in `docs/function-catalog.md`.
+
+## Current CPU Results
+
+From the latest release benchmark run:
+
+- fair step-wise Rust CPU path: `21.702 ms`
+- step-wise NumPy baseline: `158.613 ms`
+- step-wise Numba baseline: `360.417 ms`
+- specialized Rust terminal-distribution fast path: `0.987 ms`
 
 ## Next Steps
 
