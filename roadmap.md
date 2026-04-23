@@ -38,6 +38,8 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Implement baseline reductions (mean and standard error for payoff).
 - `done` Validate numeric correctness against benchmark fixtures (analytic Black-Scholes check).
 - `done` Add explicit general CPU step-wise execution path separate from specialized terminal-distribution fast path.
+- `done` Add antithetic-variates support for the current CPU European-call runtime.
+- `todo` Add control-variate support for narrow workloads with strong analytic references.
 
 ## Phase 4: NVIDIA Runtime
 
@@ -65,7 +67,15 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add competitiveness gate checks (Rust faster than available NumPy/Numba CPU baselines).
 - `done` Split European-call benchmarks into fair terminal-distribution and true step-wise benchmark families.
 - `done` Add benchmark methodology metadata so specialized fast paths are not confused with general-runtime comparisons.
+- `done` Add internal antithetic-quality benchmarking via stderr-ratio tracking.
 - `todo` Calibrate planner choice quality against measured backend winners, not only hand-authored expected scenarios.
+
+## Phase 8: Advanced Simulation Techniques
+
+- `todo` Add scrambled Sobol / randomized quasi-Monte Carlo sampling.
+- `todo` Add Latin hypercube sampling for uncertainty propagation and parameter sweeps.
+- `todo` Add multilevel Monte Carlo foundations for discretized path simulation.
+- `todo` Add multilevel randomized quasi-Monte Carlo after MLMC and RQMC foundations are stable.
 
 ## Phase 7: Agent Experience and Integration
 

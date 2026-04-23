@@ -68,4 +68,14 @@ fn rust_mc_benchmark_is_present() {
         rust_terminal.methodology.as_deref(),
         Some("terminal_distribution")
     );
+
+    let antithetic_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_antithetic_quality")
+        .expect("antithetic quality benchmark should be present");
+    assert_eq!(
+        antithetic_quality.metric_name.as_deref(),
+        Some("stderr_ratio_vs_standard")
+    );
 }

@@ -17,6 +17,19 @@ impl Default for EuropeanCallMethod {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MonteCarloTechnique {
+    Standard,
+    Antithetic,
+}
+
+impl Default for MonteCarloTechnique {
+    fn default() -> Self {
+        Self::Standard
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct EuropeanCallConfig {
     pub s0: f64,
@@ -28,6 +41,7 @@ pub struct EuropeanCallConfig {
     pub n_steps: usize,
     pub seed: u64,
     pub n_threads: usize,
+    pub technique: MonteCarloTechnique,
 }
 
 impl Default for EuropeanCallConfig {
@@ -42,6 +56,7 @@ impl Default for EuropeanCallConfig {
             n_steps: 252,
             seed: 42,
             n_threads: 0,
+            technique: MonteCarloTechnique::Standard,
         }
     }
 }
@@ -129,6 +144,11 @@ impl EuropeanCallPricer {
         self
     }
 
+    pub fn technique(mut self, value: MonteCarloTechnique) -> Self {
+        self.config.technique = value;
+        self
+    }
+
     pub fn terminal(mut self) -> Self {
         self.method = EuropeanCallMethod::TerminalDistribution;
         self
@@ -136,6 +156,16 @@ impl EuropeanCallPricer {
 
     pub fn stepwise(mut self) -> Self {
         self.method = EuropeanCallMethod::StepwisePaths;
+        self
+    }
+
+    pub fn antithetic(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Antithetic;
+        self
+    }
+
+    pub fn standard(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Standard;
         self
     }
 
@@ -226,6 +256,10 @@ pub fn european_call_price_mc_cpu_with_method(
 }
 
 pub fn european_call_price_mc_cpu_terminal(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
+    if cfg.technique == MonteCarloTechnique::Antithetic {
+        return simulate_terminal_antithetic(cfg);
+    }
+
     // For European calls under GBM, we can sample terminal distribution directly:
     // S_T = S_0 * exp((r - 0.5*sigma^2)T + sigma*sqrt(T)*Z)
     // This is equivalent in distribution to step-by-step simulation and is much faster.
@@ -243,20 +277,20 @@ pub fn european_call_price_mc_cpu_terminal(cfg: &EuropeanCallConfig) -> European
             drift_t,
             vol_t,
             discount,
+            MonteCarloTechnique::Standard,
         )
     } else {
         simulate_terminal_parallel(cfg, thread_count, drift_t, vol_t, discount)
     };
 
-    let n = cfg.n_paths as f64;
-    let price = payoff_sum / n;
-    let variance = (payoff_sq_sum / n) - (price * price);
-    let stderr = variance.max(0.0).sqrt() / n.sqrt();
-
-    EuropeanCallResult { price, stderr }
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
 }
 
 pub fn european_call_price_mc_cpu_stepwise(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
+    if cfg.technique == MonteCarloTechnique::Antithetic {
+        return simulate_stepwise_antithetic(cfg);
+    }
+
     let dt = cfg.t / cfg.n_steps as f64;
     let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
     let vol_dt = cfg.sigma * dt.sqrt();
@@ -273,17 +307,13 @@ pub fn european_call_price_mc_cpu_stepwise(cfg: &EuropeanCallConfig) -> European
             drift_dt,
             vol_dt,
             discount,
+            MonteCarloTechnique::Standard,
         )
     } else {
         simulate_stepwise_parallel(cfg, thread_count, drift_dt, vol_dt, discount)
     };
 
-    let n = cfg.n_paths as f64;
-    let price = payoff_sum / n;
-    let variance = (payoff_sq_sum / n) - (price * price);
-    let stderr = variance.max(0.0).sqrt() / n.sqrt();
-
-    EuropeanCallResult { price, stderr }
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
 }
 
 fn simulate_terminal_parallel(
@@ -302,8 +332,18 @@ fn simulate_terminal_parallel(
         let seed = derive_chunk_seed(cfg.seed, idx as u64);
         let s0 = cfg.s0;
         let k = cfg.k;
+        let technique = cfg.technique;
         handles.push(thread::spawn(move || {
-            simulate_terminal_chunk(seed, n_paths_chunk, s0, k, drift_t, vol_t, discount)
+            simulate_terminal_chunk(
+                seed,
+                n_paths_chunk,
+                s0,
+                k,
+                drift_t,
+                vol_t,
+                discount,
+                technique,
+            )
         }));
     }
 
@@ -338,6 +378,7 @@ fn simulate_stepwise_parallel(
         let s0 = cfg.s0;
         let k = cfg.k;
         let n_steps = cfg.n_steps;
+        let technique = cfg.technique;
         handles.push(thread::spawn(move || {
             simulate_stepwise_chunk(
                 seed,
@@ -348,6 +389,7 @@ fn simulate_stepwise_parallel(
                 drift_dt,
                 vol_dt,
                 discount,
+                technique,
             )
         }));
     }
@@ -373,17 +415,38 @@ fn simulate_terminal_chunk(
     drift_t: f64,
     vol_t: f64,
     discount: f64,
+    technique: MonteCarloTechnique,
 ) -> (f64, f64) {
     let mut rng = MonteCarloRng::new(seed);
     let mut payoff_sum = 0.0;
     let mut payoff_sq_sum = 0.0;
 
-    for _ in 0..n_paths {
-        let z = rng.standard_normal();
-        let s_t = s0 * (drift_t + vol_t * z).exp();
-        let payoff = (s_t - k).max(0.0) * discount;
-        payoff_sum += payoff;
-        payoff_sq_sum += payoff * payoff;
+    match technique {
+        MonteCarloTechnique::Standard => {
+            for _ in 0..n_paths {
+                let z = rng.standard_normal();
+                let payoff = european_call_payoff_from_shock(s0, k, drift_t, vol_t, z, discount);
+                payoff_sum += payoff;
+                payoff_sq_sum += payoff * payoff;
+            }
+        }
+        MonteCarloTechnique::Antithetic => {
+            let pair_count = n_paths / 2;
+            for _ in 0..pair_count {
+                let z = rng.standard_normal();
+                let payoff_a = european_call_payoff_from_shock(s0, k, drift_t, vol_t, z, discount);
+                let payoff_b = european_call_payoff_from_shock(s0, k, drift_t, vol_t, -z, discount);
+                payoff_sum += payoff_a + payoff_b;
+                payoff_sq_sum += payoff_a * payoff_a + payoff_b * payoff_b;
+            }
+
+            if n_paths % 2 != 0 {
+                let z = rng.standard_normal();
+                let payoff = european_call_payoff_from_shock(s0, k, drift_t, vol_t, z, discount);
+                payoff_sum += payoff;
+                payoff_sq_sum += payoff * payoff;
+            }
+        }
     }
 
     (payoff_sum, payoff_sq_sum)
@@ -398,25 +461,144 @@ fn simulate_stepwise_chunk(
     drift_dt: f64,
     vol_dt: f64,
     discount: f64,
+    technique: MonteCarloTechnique,
 ) -> (f64, f64) {
     let mut rng = MonteCarloRng::new(seed);
     let mut payoff_sum = 0.0;
     let mut payoff_sq_sum = 0.0;
 
-    for _ in 0..n_paths {
-        let mut log_s_t = s0.ln();
-        for _ in 0..n_steps {
-            let z = rng.standard_normal();
-            log_s_t += drift_dt + vol_dt * z;
-        }
+    match technique {
+        MonteCarloTechnique::Standard => {
+            for _ in 0..n_paths {
+                let mut log_s_t = s0.ln();
+                for _ in 0..n_steps {
+                    let z = rng.standard_normal();
+                    log_s_t += drift_dt + vol_dt * z;
+                }
 
-        let s_t = log_s_t.exp();
-        let payoff = (s_t - k).max(0.0) * discount;
-        payoff_sum += payoff;
-        payoff_sq_sum += payoff * payoff;
+                let payoff = (log_s_t.exp() - k).max(0.0) * discount;
+                payoff_sum += payoff;
+                payoff_sq_sum += payoff * payoff;
+            }
+        }
+        MonteCarloTechnique::Antithetic => {
+            let pair_count = n_paths / 2;
+            for _ in 0..pair_count {
+                let mut log_a = s0.ln();
+                let mut log_b = s0.ln();
+                for _ in 0..n_steps {
+                    let z = rng.standard_normal();
+                    log_a += drift_dt + vol_dt * z;
+                    log_b += drift_dt - vol_dt * z;
+                }
+
+                let payoff_a = (log_a.exp() - k).max(0.0) * discount;
+                let payoff_b = (log_b.exp() - k).max(0.0) * discount;
+                payoff_sum += payoff_a + payoff_b;
+                payoff_sq_sum += payoff_a * payoff_a + payoff_b * payoff_b;
+            }
+
+            if n_paths % 2 != 0 {
+                let mut log_s_t = s0.ln();
+                for _ in 0..n_steps {
+                    let z = rng.standard_normal();
+                    log_s_t += drift_dt + vol_dt * z;
+                }
+
+                let payoff = (log_s_t.exp() - k).max(0.0) * discount;
+                payoff_sum += payoff;
+                payoff_sq_sum += payoff * payoff;
+            }
+        }
     }
 
     (payoff_sum, payoff_sq_sum)
+}
+
+fn summarize_payoffs(n_paths: usize, payoff_sum: f64, payoff_sq_sum: f64) -> EuropeanCallResult {
+    let n = n_paths as f64;
+    let price = payoff_sum / n;
+    let variance = (payoff_sq_sum / n) - (price * price);
+    let stderr = variance.max(0.0).sqrt() / n.sqrt();
+
+    EuropeanCallResult { price, stderr }
+}
+
+fn summarize_block_estimates(
+    block_count: usize,
+    block_sum: f64,
+    block_sq_sum: f64,
+) -> EuropeanCallResult {
+    let n = block_count as f64;
+    let price = block_sum / n;
+    let variance = (block_sq_sum / n) - (price * price);
+    let stderr = variance.max(0.0).sqrt() / n.sqrt();
+
+    EuropeanCallResult { price, stderr }
+}
+
+fn european_call_payoff_from_shock(
+    s0: f64,
+    k: f64,
+    drift_t: f64,
+    vol_t: f64,
+    z: f64,
+    discount: f64,
+) -> f64 {
+    let s_t = s0 * (drift_t + vol_t * z).exp();
+    (s_t - k).max(0.0) * discount
+}
+
+fn simulate_terminal_antithetic(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
+    let drift_t = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * cfg.t;
+    let vol_t = cfg.sigma * cfg.t.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let pair_count = cfg.n_paths.div_ceil(2);
+
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+
+    for _ in 0..pair_count {
+        let z = rng.standard_normal();
+        let payoff_a = european_call_payoff_from_shock(cfg.s0, cfg.k, drift_t, vol_t, z, discount);
+        let payoff_b = european_call_payoff_from_shock(cfg.s0, cfg.k, drift_t, vol_t, -z, discount);
+        let block_estimate = 0.5 * (payoff_a + payoff_b);
+        block_sum += block_estimate;
+        block_sq_sum += block_estimate * block_estimate;
+    }
+
+    summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+}
+
+fn simulate_stepwise_antithetic(cfg: &EuropeanCallConfig) -> EuropeanCallResult {
+    let dt = cfg.t / cfg.n_steps as f64;
+    let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
+    let vol_dt = cfg.sigma * dt.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let pair_count = cfg.n_paths.div_ceil(2);
+
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+
+    for _ in 0..pair_count {
+        let mut log_a = cfg.s0.ln();
+        let mut log_b = cfg.s0.ln();
+        for _ in 0..cfg.n_steps {
+            let z = rng.standard_normal();
+            log_a += drift_dt + vol_dt * z;
+            log_b += drift_dt - vol_dt * z;
+        }
+
+        let payoff_a = (log_a.exp() - cfg.k).max(0.0) * discount;
+        let payoff_b = (log_b.exp() - cfg.k).max(0.0) * discount;
+        let block_estimate = 0.5 * (payoff_a + payoff_b);
+        block_sum += block_estimate;
+        block_sq_sum += block_estimate * block_estimate;
+    }
+
+    summarize_block_estimates(pair_count, block_sum, block_sq_sum)
 }
 
 fn resolved_thread_count(requested_threads: usize) -> usize {

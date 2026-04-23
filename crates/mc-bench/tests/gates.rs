@@ -77,4 +77,14 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         rust_terminal.total_runtime_ms > 0.0,
         "mc_cpu_european_call_rust_terminal gate failed: expected benchmark presence and positive runtime"
     );
+
+    let antithetic_quality = find_metric("mc_cpu_european_call_rust_antithetic_quality", &report);
+    let stderr_ratio = antithetic_quality
+        .metric_value
+        .expect("antithetic quality benchmark must contain metric_value");
+    assert!(
+        stderr_ratio < 1.0,
+        "antithetic quality gate failed: stderr_ratio_vs_standard={} expected<1",
+        stderr_ratio
+    );
 }

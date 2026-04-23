@@ -6,24 +6,25 @@ This directory stores generated benchmark reports.
 
 From `latest-results.json`:
 
-- `schema_validation`: `8.348 us` per iteration (`119,793.12 ops/sec`)
-- `planner_overhead_auto`: `0.419 us` per iteration (`2,388,938.83 ops/sec`)
+- `schema_validation`: see `latest-results.json`
+- `planner_overhead_auto`: see `latest-results.json`
 - `planner_choice_accuracy`: `100.0%` on the internal scenario set
-- `mc_cpu_european_call_rust` (`stepwise_paths`): `70.191 ms` per run (`1,424,681.54 paths/sec`)
-- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `1.409 ms` per run (`70,983,521.65 paths/sec`)
-- `mc_cpu_european_call_numpy` (`stepwise_paths`): `101.711 ms` per run (`983,181.72 paths/sec`)
-- `mc_cpu_european_call_numpy_terminal` (`terminal_distribution`): `1.350 ms` per run (`74,093,868.58 paths/sec`)
-- `mc_cpu_european_call_numba` (`stepwise_paths`): `251.131 ms` per run (`398,198.31 paths/sec`)
-- `mc_cpu_european_call_numba_terminal` (`terminal_distribution`): `3.659 ms` per run (`27,328,524.72 paths/sec`)
+- `mc_cpu_european_call_rust` (`stepwise_paths`): tracked as the fair CPU baseline
+- `mc_cpu_european_call_rust_antithetic` (`stepwise_paths_antithetic`): tracked as the first variance-reduced CPU path
+- `mc_cpu_european_call_rust_antithetic_quality`: reports `stderr_ratio_vs_standard`
+- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): tracked as the specialized fast path
+- `mc_cpu_european_call_rust_terminal_antithetic_quality`: reports `stderr_ratio_vs_standard`
 
 From `release-results.json`:
 
-- `mc_cpu_european_call_rust` (`stepwise_paths`): `21.702 ms` per run (`4,607,846.60 paths/sec`)
-- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.987 ms` per run (`101,317,122.59 paths/sec`)
-- `mc_cpu_european_call_numpy` (`stepwise_paths`): `158.613 ms` per run (`630,465.79 paths/sec`)
-- `mc_cpu_european_call_numpy_terminal` (`terminal_distribution`): `2.336 ms` per run (`42,815,856.28 paths/sec`)
-- `mc_cpu_european_call_numba` (`stepwise_paths`): `360.417 ms` per run (`277,456.52 paths/sec`)
-- `mc_cpu_european_call_numba_terminal` (`terminal_distribution`): `5.170 ms` per run (`19,343,554.61 paths/sec`)
+- `mc_cpu_european_call_rust` (`stepwise_paths`): `18.700 ms` per run
+- `mc_cpu_european_call_rust_antithetic` (`stepwise_paths_antithetic`): `38.889 ms` per run
+- `mc_cpu_european_call_rust_antithetic_quality`: `stderr_ratio_vs_standard = 0.747`
+- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.790 ms` per run
+- `mc_cpu_european_call_rust_terminal_antithetic` (`terminal_distribution_antithetic`): `1.646 ms` per run
+- `mc_cpu_european_call_rust_terminal_antithetic_quality`: `stderr_ratio_vs_standard = 0.741`
+- `mc_cpu_european_call_numpy` (`stepwise_paths`): compare in `release-results.json`
+- `mc_cpu_european_call_numba` (`stepwise_paths`): compare in `release-results.json`
 
 ## Competitiveness Output
 

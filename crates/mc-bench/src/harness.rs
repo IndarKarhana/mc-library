@@ -4,7 +4,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mc_core::{
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal, plan_execution,
-    BackendId, BackendPreference, BackendSupportReport, EuropeanCallConfig, PlannerMode, RunConfig,
+    BackendId, BackendPreference, BackendSupportReport, EuropeanCallConfig, MonteCarloTechnique,
+    PlannerMode, RunConfig,
 };
 use mc_schema::{
     validate_simulation_spec, AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec,
@@ -26,7 +27,11 @@ pub fn run_default_benchmarks() -> BenchmarkReport {
         benchmark_planner_overhead(&spec, 10_000),
         benchmark_planner_choice_accuracy(),
         benchmark_mc_rust_cpu_stepwise(MC_REPEATS),
+        benchmark_mc_rust_cpu_stepwise_antithetic(MC_REPEATS),
+        benchmark_mc_rust_cpu_stepwise_antithetic_quality(),
         benchmark_mc_rust_cpu_terminal(MC_REPEATS),
+        benchmark_mc_rust_cpu_terminal_antithetic(MC_REPEATS),
+        benchmark_mc_rust_cpu_terminal_antithetic_quality(),
     ];
 
     results.extend(benchmark_python_competitors(
@@ -400,6 +405,168 @@ fn benchmark_mc_rust_cpu_terminal(repeats: usize) -> BenchmarkResult {
         },
         metric_name: Some("price_estimate".to_string()),
         metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_stepwise_antithetic(repeats: usize) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        technique: MonteCarloTechnique::Antithetic,
+        ..EuropeanCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_stepwise(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_antithetic".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths_antithetic".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_terminal_antithetic(repeats: usize) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        technique: MonteCarloTechnique::Antithetic,
+        ..EuropeanCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_terminal(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_terminal_antithetic".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_terminal".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("terminal_distribution_antithetic".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_stepwise_antithetic_quality() -> BenchmarkResult {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_001,
+        ..EuropeanCallConfig::default()
+    };
+    let antithetic_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::Antithetic,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let antithetic = european_call_price_mc_cpu_stepwise(&antithetic_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        antithetic.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_antithetic_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths_antithetic".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_terminal_antithetic_quality() -> BenchmarkResult {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_002,
+        ..EuropeanCallConfig::default()
+    };
+    let antithetic_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::Antithetic,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_terminal(&standard_cfg);
+    let antithetic = european_call_price_mc_cpu_terminal(&antithetic_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        antithetic.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_terminal_antithetic_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_terminal".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("terminal_distribution_antithetic".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
     }
 }
 

@@ -13,6 +13,7 @@ Today we have:
 - a strong documentation and planning foundation
 - a fast specialized CPU implementation for terminal-distribution pricing
 - a fair step-wise CPU benchmark path that still beats available NumPy and Numba baselines
+- antithetic-variates support for the current CPU European-call runtime
 - good benchmark automation and artifact discipline
 - backend contracts and discovery scaffolding for NVIDIA and Apple
 
@@ -27,6 +28,7 @@ Today we do not yet have:
 
 - The fair release step-wise benchmark now leads available NumPy and Numba baselines.
 - The specialized terminal-distribution path remains dramatically faster and is now labeled separately.
+- We now also support antithetic variates on the current CPU workload, improving estimator quality at the cost of throughput.
 
 ### 2. Planner overhead is already cheap
 
@@ -95,6 +97,8 @@ The next useful agent-facing runtime features are:
 3. Implement the first Metal kernel path.
 4. Recalibrate planner heuristics from observed data.
 5. Add agent-facing explain and manifest helpers.
+6. Add scrambled Sobol / randomized quasi-Monte Carlo.
+7. Add control variates and then MLMC foundations.
 
 ## What We Should Not Do Yet
 

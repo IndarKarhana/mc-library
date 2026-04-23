@@ -73,15 +73,20 @@ Competitive benchmark policy is documented in `docs/competitive-benchmark-policy
 User-experience research and UX implementation plan is in `docs/user-friendliness-research.md`.
 Agent integration guidance is in `docs/agent-integration-plan.md`.
 Public function inventory is in `docs/function-catalog.md`.
+Technique roadmap is in `docs/simulation-techniques.md`.
 
 ## Current CPU Results
 
 From the latest release benchmark run:
 
-- fair step-wise Rust CPU path: `21.702 ms`
-- step-wise NumPy baseline: `158.613 ms`
-- step-wise Numba baseline: `360.417 ms`
-- specialized Rust terminal-distribution fast path: `0.987 ms`
+- fair step-wise Rust CPU path: `18.700 ms`
+- step-wise Rust antithetic path: `38.889 ms`
+- step-wise NumPy baseline: see `benchmarks/release-results.json`
+- step-wise Numba baseline: see `benchmarks/release-results.json`
+- specialized Rust terminal-distribution fast path: `0.790 ms`
+- antithetic stderr ratio vs standard:
+  - step-wise: `0.747`
+  - terminal: `0.741`
 
 ## Next Steps
 
