@@ -86,6 +86,54 @@ pub struct ReproSupport {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum GpuValueType {
+    Float32,
+    Float64,
+    Int32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GpuBufferDirection {
+    Input,
+    Output,
+    InOut,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GpuBufferBinding {
+    pub binding_index: u32,
+    pub name: String,
+    pub direction: GpuBufferDirection,
+    pub value_type: GpuValueType,
+    pub element_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GpuScalarBinding {
+    pub binding_index: u32,
+    pub name: String,
+    pub value_type: GpuValueType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GpuLaunchDimensions {
+    pub logical_threads: usize,
+    pub threads_per_group_x: u32,
+    pub threadgroups_x: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GpuKernelContract {
+    pub kernel_family: String,
+    pub entry_point: String,
+    pub buffers: Vec<GpuBufferBinding>,
+    pub scalars: Vec<GpuScalarBinding>,
+    pub launch: GpuLaunchDimensions,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ArtifactExecutionMode {
     CpuNative,
     GpuFallback,
@@ -102,6 +150,7 @@ pub struct NativeArtifactMetadata {
     pub compile_requested: bool,
     pub compile_succeeded: bool,
     pub compiled_module_path: Option<String>,
+    pub kernel_contract: Option<GpuKernelContract>,
     pub notes: Vec<String>,
 }
 
@@ -378,6 +427,7 @@ pub(crate) fn make_native_artifact_metadata(
     compile_requested: bool,
     compile_succeeded: bool,
     compiled_module_path: Option<String>,
+    kernel_contract: Option<GpuKernelContract>,
     notes: Vec<String>,
 ) -> NativeArtifactMetadata {
     NativeArtifactMetadata {
@@ -390,6 +440,7 @@ pub(crate) fn make_native_artifact_metadata(
         compile_requested,
         compile_succeeded,
         compiled_module_path,
+        kernel_contract,
         notes,
     }
 }

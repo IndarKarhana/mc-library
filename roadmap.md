@@ -46,6 +46,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Implement CUDA backend contract and device discovery.
 - `done` Add truthful delegated fallback execution path for CUDA backend while native kernels are in progress.
 - `done` Add host-side CUDA native staging boundary and feature gate.
+- `done` Add shared GPU launch and buffer contracts for staged native kernels.
 - `done` Add first staged CUDA kernel source and PTX compile-attempt path for the core workload.
 - `todo` Implement native CUDA launch and reduction path for the staged kernel.
 - `done` Add GPU memory and chunking strategy.
@@ -56,7 +57,8 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Implement Apple Metal backend contract.
 - `done` Add truthful delegated fallback execution path for Apple Metal backend while native kernels are in progress.
 - `done` Add host-side Metal native staging boundary and feature gate.
-- `todo` Implement first Metal compute kernels for core workload path.
+- `done` Add first staged Metal shader source and `.air` / `.metallib` compile-attempt path for the core workload.
+- `todo` Implement native Metal launch and reduction path for the staged kernel.
 - `todo` Add planner heuristics for Apple backend selection.
 
 ## Phase 6: Benchmarks and Tuning

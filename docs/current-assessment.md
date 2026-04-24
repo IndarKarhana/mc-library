@@ -19,6 +19,8 @@ Today we have:
 - a workable no-GPU testing strategy for backend conformance and CI
 - host-side native CUDA and Metal staging gates with kernel-manifest metadata and compile-time validation
 - an actual staged CUDA kernel source plus PTX compile-attempt plumbing behind `cuda-native`
+- shared GPU launch and buffer contracts for staged native kernels
+- an actual staged Metal shader source plus `.air` / `.metallib` compile-attempt plumbing behind `metal-native`
 
 Today we do not yet have:
 
@@ -47,7 +49,7 @@ The architecture docs, roadmap, benchmark artifacts, and quality rules are unusu
 
 ### 1. GPU acceleration is still not native yet
 
-The planner and backend layers now execute through explicit delegated CPU fallback semantics, and they now include host-side native staging boundaries for CUDA and Metal. CUDA also has a real staged `.cu` kernel source and PTX compile-attempt path. They still do not run native CUDA or Metal kernels on-device yet.
+The planner and backend layers now execute through explicit delegated CPU fallback semantics, and they now include host-side native staging boundaries for CUDA and Metal. CUDA has a real staged `.cu` kernel source and PTX compile-attempt path, and Metal has a real staged `.metal` source and `.air` / `.metallib` compile-attempt path. They still do not run native CUDA or Metal kernels on-device yet.
 
 That means the product is operationally honest and integration-ready, but it is not yet GPU-accelerated in the way users will ultimately expect.
 

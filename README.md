@@ -66,6 +66,12 @@ The CUDA path now includes an actual staged kernel source at:
 
 When `cuda-native` is enabled and `nvcc` is available, the backend attempts PTX compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native launch support lands.
 
+The Metal path now includes a matching staged shader source at:
+
+- `crates/mc-core/src/backend/kernels/european_call_stepwise_v1.metal`
+
+When `metal-native` is enabled and Apple developer tools are available, the backend attempts `.air` and `.metallib` compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native Metal launch support lands.
+
 ## Running Tests
 
 ```bash

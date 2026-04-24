@@ -34,6 +34,12 @@ For CUDA specifically, this now also covers:
 - PTX compile-attempt metadata in compiled artifacts
 - environment-sensitive `nvcc` probing without requiring a CUDA device
 
+For Metal specifically, this now also covers:
+
+- a real staged `.metal` shader source file
+- `.air` / `.metallib` compile-attempt metadata in compiled artifacts
+- environment-sensitive Apple toolchain probing without requiring successful GPU execution
+
 ## Layer 1: CPU Reference Truth
 
 The CPU runtime is the numerical source of truth for the current European-call workload family.

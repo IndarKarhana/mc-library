@@ -5,8 +5,9 @@ use std::process::Command;
 use super::{
     compile_gpu_fallback_artifact, execute_gpu_fallback, make_native_artifact_metadata,
     plan_gpu_chunking, BackendError, BackendExecutionInput, BackendId, BackendInfo,
-    CompiledArtifact, CostEstimate, DeviceInfo, ExecutionPlan, GpuChunkingConfig, ReproSupport,
-    RuntimeBackend, SupportReport,
+    CompiledArtifact, CostEstimate, DeviceInfo, ExecutionPlan, GpuBufferBinding,
+    GpuBufferDirection, GpuChunkingConfig, GpuKernelContract, GpuLaunchDimensions,
+    GpuScalarBinding, GpuValueType, ReproSupport, RuntimeBackend, SupportReport,
 };
 use crate::SupportLevel;
 
@@ -170,6 +171,7 @@ impl RuntimeBackend for NvidiaCudaBackend {
             compile_status.compile_requested,
             compile_status.compile_succeeded,
             compile_status.compiled_module_path,
+            Some(first_cuda_kernel_contract(plan)),
             notes,
         ));
 
@@ -240,6 +242,71 @@ pub(crate) fn discover_nvidia_devices() -> Vec<DeviceInfo> {
 
 fn supports_first_cuda_kernel_shape(plan: &ExecutionPlan) -> bool {
     plan.features.conditional_expression_count == 0 && plan.features.reduction_count <= 1
+}
+
+fn first_cuda_kernel_contract(plan: &ExecutionPlan) -> GpuKernelContract {
+    GpuKernelContract {
+        kernel_family: FIRST_CUDA_KERNEL_FAMILY.to_string(),
+        entry_point: FIRST_CUDA_KERNEL_ENTRY_POINT.to_string(),
+        buffers: vec![
+            GpuBufferBinding {
+                binding_index: 0,
+                name: "normals".to_string(),
+                direction: GpuBufferDirection::Input,
+                value_type: GpuValueType::Float64,
+                element_count: plan.n_paths.saturating_mul(plan.n_steps),
+            },
+            GpuBufferBinding {
+                binding_index: 1,
+                name: "payoffs".to_string(),
+                direction: GpuBufferDirection::Output,
+                value_type: GpuValueType::Float64,
+                element_count: plan.n_paths,
+            },
+        ],
+        scalars: vec![
+            GpuScalarBinding {
+                binding_index: 2,
+                name: "n_paths".to_string(),
+                value_type: GpuValueType::Int32,
+            },
+            GpuScalarBinding {
+                binding_index: 3,
+                name: "n_steps".to_string(),
+                value_type: GpuValueType::Int32,
+            },
+            GpuScalarBinding {
+                binding_index: 4,
+                name: "log_s0".to_string(),
+                value_type: GpuValueType::Float64,
+            },
+            GpuScalarBinding {
+                binding_index: 5,
+                name: "strike".to_string(),
+                value_type: GpuValueType::Float64,
+            },
+            GpuScalarBinding {
+                binding_index: 6,
+                name: "drift_dt".to_string(),
+                value_type: GpuValueType::Float64,
+            },
+            GpuScalarBinding {
+                binding_index: 7,
+                name: "vol_dt".to_string(),
+                value_type: GpuValueType::Float64,
+            },
+            GpuScalarBinding {
+                binding_index: 8,
+                name: "discount".to_string(),
+                value_type: GpuValueType::Float64,
+            },
+        ],
+        launch: GpuLaunchDimensions {
+            logical_threads: plan.n_paths,
+            threads_per_group_x: 256,
+            threadgroups_x: (plan.n_paths as u32).div_ceil(256),
+        },
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -162,7 +162,22 @@ fn metal_compile_succeeds_with_fallback_artifact() {
         .native_artifact
         .expect("metal compile should produce native staging metadata");
     assert_eq!(native.kernel_family, "european_call_stepwise_v1");
+    assert_eq!(native.entry_point, "mc_metal_european_call_stepwise_v1");
     assert_eq!(native.feature_gate, "metal-native");
+    assert_eq!(
+        native.source_module,
+        "crates/mc-core/src/backend/kernels/european_call_stepwise_v1.metal"
+    );
+    if metal_native_feature_enabled() {
+        assert!(native.compile_requested);
+        if native.compile_succeeded {
+            assert!(native.compiled_module_path.is_some());
+        }
+    } else {
+        assert!(!native.compile_requested);
+        assert!(!native.compile_succeeded);
+        assert!(native.compiled_module_path.is_none());
+    }
 }
 
 #[test]
@@ -328,6 +343,62 @@ fn estimate_gpu_bytes_per_path_scales_with_steps() {
     assert!(large_bytes >= small_bytes);
 }
 
+#[test]
+fn cuda_and_metal_kernel_contracts_share_launch_shape() {
+    let cuda_backend = NvidiaCudaBackend::new();
+    let metal_backend = AppleMetalBackend::new();
+    let cuda_artifact = cuda_backend
+        .compile(&test_plan(), &mock_cuda_device())
+        .expect("cuda compile should succeed");
+    let metal_artifact = metal_backend
+        .compile(&test_plan(), &mock_metal_device())
+        .expect("metal compile should succeed");
+
+    let cuda_contract = cuda_artifact
+        .native_artifact
+        .expect("cuda native metadata missing")
+        .kernel_contract
+        .expect("cuda kernel contract missing");
+    let metal_contract = metal_artifact
+        .native_artifact
+        .expect("metal native metadata missing")
+        .kernel_contract
+        .expect("metal kernel contract missing");
+
+    assert_eq!(cuda_contract.kernel_family, metal_contract.kernel_family);
+    assert_eq!(cuda_contract.launch.logical_threads, test_plan().n_paths);
+    assert_eq!(metal_contract.launch.logical_threads, test_plan().n_paths);
+    assert_eq!(
+        cuda_contract.launch.threadgroups_x,
+        metal_contract.launch.threadgroups_x
+    );
+}
+
+#[test]
+fn gpu_kernel_contracts_match_expected_buffer_roles() {
+    let cuda_backend = NvidiaCudaBackend::new();
+    let artifact = cuda_backend
+        .compile(&test_plan(), &mock_cuda_device())
+        .expect("cuda compile should succeed");
+    let contract = artifact
+        .native_artifact
+        .expect("cuda native metadata missing")
+        .kernel_contract
+        .expect("cuda kernel contract missing");
+
+    assert_eq!(contract.buffers.len(), 2);
+    assert_eq!(contract.buffers[0].name, "normals");
+    assert_eq!(
+        contract.buffers[0].element_count,
+        test_plan().n_paths * test_plan().n_steps
+    );
+    assert_eq!(contract.buffers[1].name, "payoffs");
+    assert_eq!(contract.buffers[1].element_count, test_plan().n_paths);
+    assert_eq!(contract.scalars.len(), 7);
+    assert_eq!(contract.scalars[0].name, "n_paths");
+    assert_eq!(contract.scalars[1].name, "n_steps");
+}
+
 #[cfg(not(any(feature = "cuda-native", feature = "metal-native")))]
 #[test]
 fn default_build_reports_native_feature_gates_disabled() {
@@ -362,4 +433,21 @@ fn cuda_native_compile_records_requested_status() {
 #[test]
 fn metal_native_feature_gate_reports_enabled_when_requested() {
     assert!(metal_native_feature_enabled());
+}
+
+#[cfg(feature = "metal-native")]
+#[test]
+fn metal_native_compile_records_requested_status() {
+    let backend = AppleMetalBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_metal_device())
+        .expect("metal compile should succeed with native staging metadata");
+    let native = artifact
+        .native_artifact
+        .expect("metal compile should include native metadata");
+
+    assert!(native.compile_requested);
+    if native.compile_succeeded {
+        assert!(native.compiled_module_path.is_some());
+    }
 }

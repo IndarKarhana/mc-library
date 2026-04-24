@@ -1,16 +1,23 @@
-use std::{process::Command, thread};
+use std::{fs, path::PathBuf, process::Command, thread};
 
 use super::{
     compile_gpu_fallback_artifact, execute_gpu_fallback, make_native_artifact_metadata,
     plan_gpu_chunking, BackendError, BackendExecutionInput, BackendId, BackendInfo,
-    CompiledArtifact, CostEstimate, DeviceInfo, ExecutionPlan, GpuChunkingConfig, ReproSupport,
-    RuntimeBackend, SupportReport,
+    CompiledArtifact, CostEstimate, DeviceInfo, ExecutionPlan, GpuBufferBinding,
+    GpuBufferDirection, GpuChunkingConfig, GpuKernelContract, GpuLaunchDimensions,
+    GpuScalarBinding, GpuValueType, ReproSupport, RuntimeBackend, SupportReport,
 };
 use crate::SupportLevel;
 
 pub fn metal_native_feature_enabled() -> bool {
     cfg!(feature = "metal-native")
 }
+
+const FIRST_METAL_KERNEL_ENTRY_POINT: &str = "mc_metal_european_call_stepwise_v1";
+const FIRST_METAL_KERNEL_FAMILY: &str = "european_call_stepwise_v1";
+const FIRST_METAL_KERNEL_SOURCE_MODULE: &str =
+    "crates/mc-core/src/backend/kernels/european_call_stepwise_v1.metal";
+const FIRST_METAL_KERNEL_SOURCE: &str = include_str!("kernels/european_call_stepwise_v1.metal");
 
 #[derive(Debug, Clone, Default)]
 pub struct AppleMetalBackend;
@@ -149,18 +156,21 @@ impl RuntimeBackend for AppleMetalBackend {
         device: &DeviceInfo,
     ) -> Result<CompiledArtifact, BackendError> {
         self.validate_device(device)?;
+        let compile_status = stage_native_metal_kernel(plan);
+        let notes = metal_kernel_notes(plan, &compile_status);
 
         let native_artifact = Some(make_native_artifact_metadata(
-            "european_call_stepwise_v1",
-            "mc_metal_european_call_stepwise_v1",
-            "crates/mc-core/src/backend/metal.rs",
-            "metal_shading_language_host_staging",
+            FIRST_METAL_KERNEL_FAMILY,
+            FIRST_METAL_KERNEL_ENTRY_POINT,
+            FIRST_METAL_KERNEL_SOURCE_MODULE,
+            "metal_shading_language",
             "metal-native",
-            probe_metal_toolchain(),
-            metal_native_feature_enabled(),
-            false,
-            None,
-            metal_kernel_notes(plan),
+            compile_status.toolchain_available,
+            compile_status.compile_requested,
+            compile_status.compile_succeeded,
+            compile_status.compiled_module_path,
+            Some(first_metal_kernel_contract(plan)),
+            notes,
         ));
 
         Ok(compile_gpu_fallback_artifact(
@@ -214,7 +224,84 @@ fn supports_first_metal_kernel_shape(plan: &ExecutionPlan) -> bool {
     plan.features.conditional_expression_count == 0 && plan.features.reduction_count <= 1
 }
 
-fn metal_kernel_notes(plan: &ExecutionPlan) -> Vec<String> {
+fn first_metal_kernel_contract(plan: &ExecutionPlan) -> GpuKernelContract {
+    GpuKernelContract {
+        kernel_family: FIRST_METAL_KERNEL_FAMILY.to_string(),
+        entry_point: FIRST_METAL_KERNEL_ENTRY_POINT.to_string(),
+        buffers: vec![
+            GpuBufferBinding {
+                binding_index: 0,
+                name: "normals".to_string(),
+                direction: GpuBufferDirection::Input,
+                value_type: GpuValueType::Float32,
+                element_count: plan.n_paths.saturating_mul(plan.n_steps),
+            },
+            GpuBufferBinding {
+                binding_index: 1,
+                name: "payoffs".to_string(),
+                direction: GpuBufferDirection::Output,
+                value_type: GpuValueType::Float32,
+                element_count: plan.n_paths,
+            },
+        ],
+        scalars: vec![
+            GpuScalarBinding {
+                binding_index: 2,
+                name: "n_paths".to_string(),
+                value_type: GpuValueType::Int32,
+            },
+            GpuScalarBinding {
+                binding_index: 3,
+                name: "n_steps".to_string(),
+                value_type: GpuValueType::Int32,
+            },
+            GpuScalarBinding {
+                binding_index: 4,
+                name: "log_s0".to_string(),
+                value_type: GpuValueType::Float32,
+            },
+            GpuScalarBinding {
+                binding_index: 5,
+                name: "strike".to_string(),
+                value_type: GpuValueType::Float32,
+            },
+            GpuScalarBinding {
+                binding_index: 6,
+                name: "drift_dt".to_string(),
+                value_type: GpuValueType::Float32,
+            },
+            GpuScalarBinding {
+                binding_index: 7,
+                name: "vol_dt".to_string(),
+                value_type: GpuValueType::Float32,
+            },
+            GpuScalarBinding {
+                binding_index: 8,
+                name: "discount".to_string(),
+                value_type: GpuValueType::Float32,
+            },
+        ],
+        launch: GpuLaunchDimensions {
+            logical_threads: plan.n_paths,
+            threads_per_group_x: 256,
+            threadgroups_x: (plan.n_paths as u32).div_ceil(256),
+        },
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MetalKernelStageStatus {
+    toolchain_available: bool,
+    compile_requested: bool,
+    compile_succeeded: bool,
+    compiled_module_path: Option<String>,
+    diagnostics: Vec<String>,
+}
+
+fn metal_kernel_notes(
+    plan: &ExecutionPlan,
+    compile_status: &MetalKernelStageStatus,
+) -> Vec<String> {
     let mut notes = vec![
         "host-side Metal shader ABI is staged but runtime still executes through delegated CPU fallback"
             .to_string(),
@@ -222,6 +309,7 @@ fn metal_kernel_notes(plan: &ExecutionPlan) -> Vec<String> {
             "validated target shape: n_paths={} n_steps={} conditional_expressions={}",
             plan.n_paths, plan.n_steps, plan.features.conditional_expression_count
         ),
+        format!("kernel_entry_point={FIRST_METAL_KERNEL_ENTRY_POINT}"),
     ];
 
     if metal_native_feature_enabled() {
@@ -234,6 +322,8 @@ fn metal_kernel_notes(plan: &ExecutionPlan) -> Vec<String> {
             "feature gate disabled; artifact remains a native-ready manifest only".to_string(),
         );
     }
+
+    notes.extend(compile_status.diagnostics.iter().cloned());
 
     notes
 }
@@ -248,4 +338,117 @@ fn probe_metal_toolchain() -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+fn stage_native_metal_kernel(plan: &ExecutionPlan) -> MetalKernelStageStatus {
+    let toolchain_available = probe_metal_toolchain();
+    let compile_requested = metal_native_feature_enabled();
+
+    if !compile_requested {
+        return MetalKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: false,
+            compiled_module_path: None,
+            diagnostics: vec![
+                "native Metal compile skipped because the `metal-native` feature is disabled"
+                    .to_string(),
+            ],
+        };
+    }
+
+    if !toolchain_available {
+        return MetalKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: false,
+            compiled_module_path: None,
+            diagnostics: vec![
+                "native Metal compile requested but the Metal developer tools were not available on this machine"
+                    .to_string(),
+            ],
+        };
+    }
+
+    match compile_metal_kernel_to_metallib(plan) {
+        Ok(metallib_path) => MetalKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: true,
+            compiled_module_path: Some(metallib_path.display().to_string()),
+            diagnostics: vec![format!(
+                "native Metal library compilation succeeded for staged kernel: {}",
+                metallib_path.display()
+            )],
+        },
+        Err(error) => MetalKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: false,
+            compiled_module_path: None,
+            diagnostics: vec![format!("native Metal library compilation failed: {error}")],
+        },
+    }
+}
+
+fn compile_metal_kernel_to_metallib(plan: &ExecutionPlan) -> Result<PathBuf, String> {
+    let output_dir = staged_metal_output_dir();
+    fs::create_dir_all(&output_dir)
+        .map_err(|error| format!("unable to create Metal staging directory: {error}"))?;
+
+    let source_path = output_dir.join(format!(
+        "{FIRST_METAL_KERNEL_FAMILY}_{}paths_{}steps.metal",
+        plan.n_paths, plan.n_steps
+    ));
+    let air_path = output_dir.join(format!(
+        "{FIRST_METAL_KERNEL_FAMILY}_{}paths_{}steps.air",
+        plan.n_paths, plan.n_steps
+    ));
+    let metallib_path = output_dir.join(format!(
+        "{FIRST_METAL_KERNEL_FAMILY}_{}paths_{}steps.metallib",
+        plan.n_paths, plan.n_steps
+    ));
+
+    fs::write(&source_path, FIRST_METAL_KERNEL_SOURCE)
+        .map_err(|error| format!("unable to write staged Metal source: {error}"))?;
+
+    let metal_output = Command::new("xcrun")
+        .args([
+            "-sdk",
+            "macosx",
+            "metal",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            air_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|error| format!("failed to spawn metal compiler: {error}"))?;
+
+    if !metal_output.status.success() {
+        let stderr = String::from_utf8_lossy(&metal_output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+
+    let metallib_output = Command::new("xcrun")
+        .args([
+            "-sdk",
+            "macosx",
+            "metallib",
+            air_path.to_string_lossy().as_ref(),
+            "-o",
+            metallib_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|error| format!("failed to spawn metallib: {error}"))?;
+
+    if !metallib_output.status.success() {
+        let stderr = String::from_utf8_lossy(&metallib_output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+
+    Ok(metallib_path)
+}
+
+fn staged_metal_output_dir() -> PathBuf {
+    std::env::temp_dir().join("mc-library").join("metal")
 }
