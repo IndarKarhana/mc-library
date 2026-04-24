@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+cuda-native = ["mc-core/cuda-native"]
+metal-native = ["mc-core/metal-native"]
+native-gpu = ["cuda-native", "metal-native"]
+
 [dependencies]
 mc-core = { path = "../mc-core" }
 mc-schema = { path = "../mc-schema" }

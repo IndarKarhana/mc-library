@@ -40,6 +40,7 @@ For Metal specifically, this now also covers:
 - `.air` / `.metallib` compile-attempt metadata in compiled artifacts
 - environment-sensitive Apple toolchain probing without requiring successful GPU execution
 - a native macOS runtime execution path validated against a CPU reference using the same generated normals
+- a benchmark path that measures the current native Apple GPU execution end-to-end on macOS
 
 ## Layer 1: CPU Reference Truth
 
@@ -116,8 +117,12 @@ Not yet provable locally:
 
 - native CUDA kernel correctness
 - native CUDA performance
-- native Metal kernel correctness
 - native Metal performance
+
+Provable on Apple Silicon with `metal-native` enabled:
+
+- native Metal kernel smoke execution
+- CPU-vs-Metal numerical agreement for the first staged workload
 
 ### After First Native CUDA Kernel
 
@@ -131,12 +136,11 @@ Required before calling CUDA support real:
 
 ### After First Native Metal Kernel
 
-Required before calling Metal support real:
+Required before calling Metal support production-grade:
 
-- native Metal smoke tests on hardware
-- CPU-vs-Metal numerical agreement tests
-- unified-memory and chunking validation
-- benchmark evidence on Apple Silicon
+- remove Swift helper process overhead from steady-state execution
+- validate unified-memory and chunking behavior under larger workloads
+- benchmark evidence that Apple GPU execution beats the CPU reference on representative workloads
 
 ## Benchmarking Without Local CUDA
 

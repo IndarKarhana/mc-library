@@ -326,6 +326,7 @@ pub fn european_call_price_mc_cpu_stepwise(cfg: &EuropeanCallConfig) -> European
     summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
 }
 
+#[allow(dead_code)]
 pub(crate) fn generate_stepwise_standard_normals_f32(
     seed: u64,
     n_paths: usize,
@@ -336,6 +337,28 @@ pub(crate) fn generate_stepwise_standard_normals_f32(
 
     for _ in 0..n_paths.saturating_mul(n_steps) {
         normals.push(rng.standard_normal() as f32);
+    }
+
+    normals
+}
+
+#[allow(dead_code)]
+pub(crate) fn generate_stepwise_stateless_normals_f32(
+    seed: u64,
+    n_paths: usize,
+    n_steps: usize,
+) -> Vec<f32> {
+    let seed_u32 = seed as u32;
+    let mut normals = Vec::with_capacity(n_paths.saturating_mul(n_steps));
+
+    for path_idx in 0..n_paths {
+        for step_idx in 0..n_steps {
+            normals.push(stateless_standard_normal_f32(
+                seed_u32,
+                path_idx as u32,
+                step_idx as u32,
+            ));
+        }
     }
 
     normals
@@ -378,6 +401,35 @@ pub(crate) fn european_call_price_mc_stepwise_from_f32_normals(
     }
 
     summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+}
+
+#[allow(dead_code)]
+pub(crate) fn stateless_standard_normal_f32(seed: u32, path_idx: u32, step_idx: u32) -> f32 {
+    let u1 = stateless_open01_f32(seed, path_idx, step_idx, 0);
+    let u2 = stateless_open01_f32(seed, path_idx, step_idx, 1);
+    let radius = (-2.0f32 * u1.ln()).sqrt();
+    let theta = 2.0f32 * (std::f32::consts::PI) * u2;
+    radius * theta.cos()
+}
+
+#[allow(dead_code)]
+fn stateless_open01_f32(seed: u32, path_idx: u32, step_idx: u32, lane: u32) -> f32 {
+    let mixed = seed
+        ^ path_idx.wrapping_mul(747_796_405)
+        ^ step_idx.wrapping_mul(2_891_336_453)
+        ^ lane.wrapping_mul(277_803_737);
+    let hashed = hash_u32(mixed);
+    (((hashed as f64) + 1.0) / 4_294_967_297.0).max(f32::MIN_POSITIVE as f64) as f32
+}
+
+#[allow(dead_code)]
+fn hash_u32(mut x: u32) -> u32 {
+    x = x.wrapping_add(0x9E37_79B9);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 13;
+    x = x.wrapping_mul(0xC2B2_AE35);
+    x ^ (x >> 16)
 }
 
 fn simulate_terminal_parallel(

@@ -7,9 +7,7 @@ use super::{
     GpuBufferDirection, GpuChunkingConfig, GpuKernelContract, GpuLaunchDimensions,
     GpuScalarBinding, GpuValueType, ReproSupport, RuntimeBackend, SupportReport,
 };
-use crate::{
-    runtime::cpu::generate_stepwise_standard_normals_f32, MonteCarloTechnique, SupportLevel,
-};
+use crate::{MonteCarloTechnique, SupportLevel};
 
 pub fn metal_native_feature_enabled() -> bool {
     cfg!(feature = "metal-native")
@@ -232,23 +230,24 @@ fn supports_first_metal_kernel_shape(plan: &ExecutionPlan) -> bool {
 }
 
 fn first_metal_kernel_contract(plan: &ExecutionPlan) -> GpuKernelContract {
+    let threadgroups_x = (plan.n_paths as u32).div_ceil(256);
     GpuKernelContract {
         kernel_family: FIRST_METAL_KERNEL_FAMILY.to_string(),
         entry_point: FIRST_METAL_KERNEL_ENTRY_POINT.to_string(),
         buffers: vec![
             GpuBufferBinding {
                 binding_index: 0,
-                name: "normals".to_string(),
-                direction: GpuBufferDirection::Input,
+                name: "partial_sums".to_string(),
+                direction: GpuBufferDirection::Output,
                 value_type: GpuValueType::Float32,
-                element_count: plan.n_paths.saturating_mul(plan.n_steps),
+                element_count: threadgroups_x as usize,
             },
             GpuBufferBinding {
                 binding_index: 1,
-                name: "payoffs".to_string(),
+                name: "partial_sq_sums".to_string(),
                 direction: GpuBufferDirection::Output,
                 value_type: GpuValueType::Float32,
-                element_count: plan.n_paths,
+                element_count: threadgroups_x as usize,
             },
         ],
         scalars: vec![
@@ -287,11 +286,16 @@ fn first_metal_kernel_contract(plan: &ExecutionPlan) -> GpuKernelContract {
                 name: "discount".to_string(),
                 value_type: GpuValueType::Float32,
             },
+            GpuScalarBinding {
+                binding_index: 9,
+                name: "seed".to_string(),
+                value_type: GpuValueType::Int32,
+            },
         ],
         launch: GpuLaunchDimensions {
             logical_threads: plan.n_paths,
             threads_per_group_x: 256,
-            threadgroups_x: (plan.n_paths as u32).div_ceil(256),
+            threadgroups_x,
         },
     }
 }
@@ -428,8 +432,7 @@ fn execute_native_metal_if_possible(
     }
 
     let started = Instant::now();
-    let normals = generate_stepwise_standard_normals_f32(cfg.seed, cfg.n_paths, cfg.n_steps);
-    let result = execute_metal_stepwise_kernel(cfg, &normals)?;
+    let result = execute_metal_stepwise_kernel(cfg)?;
 
     Ok(super::RunOutput {
         price: result.price,
@@ -440,7 +443,6 @@ fn execute_native_metal_if_possible(
 
 fn execute_metal_stepwise_kernel(
     cfg: &crate::EuropeanCallConfig,
-    normals: &[f32],
 ) -> Result<crate::EuropeanCallResult, BackendError> {
     let output_dir = staged_metal_output_dir();
     fs::create_dir_all(&output_dir).map_err(|error| {
@@ -454,10 +456,6 @@ fn execute_metal_stepwise_kernel(
         cfg.n_paths, cfg.n_steps
     ));
     let script_path = output_dir.join("run_metal_stepwise.swift");
-    let normals_path = output_dir.join(format!(
-        "{FIRST_METAL_KERNEL_FAMILY}_runtime_{}paths_{}steps_normals.bin",
-        cfg.n_paths, cfg.n_steps
-    ));
 
     fs::write(&source_path, FIRST_METAL_KERNEL_SOURCE).map_err(|error| {
         BackendError::UnsupportedFeature(format!("unable to write staged Metal source: {error}"))
@@ -465,16 +463,6 @@ fn execute_metal_stepwise_kernel(
     fs::write(&script_path, FIRST_METAL_SWIFT_RUNNER_SOURCE).map_err(|error| {
         BackendError::UnsupportedFeature(format!(
             "unable to write staged Metal Swift runner: {error}"
-        ))
-    })?;
-
-    let mut normals_bytes = Vec::with_capacity(std::mem::size_of_val(normals));
-    for value in normals {
-        normals_bytes.extend_from_slice(&value.to_ne_bytes());
-    }
-    fs::write(&normals_path, normals_bytes).map_err(|error| {
-        BackendError::UnsupportedFeature(format!(
-            "unable to write staged Metal normals buffer: {error}"
         ))
     })?;
 
@@ -486,7 +474,6 @@ fn execute_metal_stepwise_kernel(
     let output = Command::new("swift")
         .arg(script_path.to_string_lossy().as_ref())
         .arg(source_path.to_string_lossy().as_ref())
-        .arg(normals_path.to_string_lossy().as_ref())
         .arg(cfg.n_paths.to_string())
         .arg(cfg.n_steps.to_string())
         .arg((cfg.s0.ln() as f32).to_string())
@@ -494,6 +481,7 @@ fn execute_metal_stepwise_kernel(
         .arg(drift_dt.to_string())
         .arg(vol_dt.to_string())
         .arg(discount.to_string())
+        .arg((cfg.seed as u32).to_string())
         .output()
         .map_err(|error| {
             BackendError::UnsupportedFeature(format!(
@@ -546,7 +534,11 @@ fn execute_metal_stepwise_kernel(
 mod tests {
     use super::*;
     use crate::{
-        runtime::cpu::european_call_price_mc_stepwise_from_f32_normals, EuropeanCallConfig,
+        runtime::cpu::{
+            european_call_price_mc_stepwise_from_f32_normals,
+            generate_stepwise_stateless_normals_f32,
+        },
+        EuropeanCallConfig,
     };
 
     #[test]
@@ -559,10 +551,9 @@ mod tests {
             technique: MonteCarloTechnique::Standard,
             ..EuropeanCallConfig::default()
         };
-        let normals = generate_stepwise_standard_normals_f32(cfg.seed, cfg.n_paths, cfg.n_steps);
-
-        let metal = execute_metal_stepwise_kernel(&cfg, &normals)
+        let metal = execute_metal_stepwise_kernel(&cfg)
             .expect("native Metal stepwise kernel should execute successfully");
+        let normals = generate_stepwise_stateless_normals_f32(cfg.seed, cfg.n_paths, cfg.n_steps);
         let cpu = european_call_price_mc_stepwise_from_f32_normals(&cfg, &normals);
 
         let price_error = (metal.price - cpu.price).abs();

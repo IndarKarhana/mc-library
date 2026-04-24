@@ -7,6 +7,11 @@ use mc_core::{
     BackendId, BackendPreference, BackendSupportReport, EuropeanCallConfig, MonteCarloTechnique,
     PlannerMode, RunConfig,
 };
+#[cfg(feature = "metal-native")]
+use mc_core::{
+    AppleMetalBackend, BackendDecisionReport, BackendExecutionInput, ExecutionPlan, FeatureSummary,
+    RuntimeBackend,
+};
 use mc_schema::{
     validate_simulation_spec, AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec,
     RandomVarSpec, ReductionSpec, SimulationSpec, StateUpdate, StateVarSpec, StepSpec,
@@ -37,6 +42,10 @@ pub fn run_default_benchmarks() -> BenchmarkReport {
         benchmark_mc_rust_cpu_terminal_control_variate(MC_REPEATS),
         benchmark_mc_rust_cpu_terminal_control_variate_quality(),
     ];
+
+    if let Some(metal_result) = benchmark_mc_native_metal_stepwise(MC_REPEATS) {
+        results.push(metal_result);
+    }
 
     results.extend(benchmark_python_competitors(
         MC_PATHS, MC_STEPS, MC_REPEATS, 42,
@@ -365,6 +374,77 @@ fn benchmark_mc_rust_cpu_stepwise(repeats: usize) -> BenchmarkResult {
         },
         metric_name: Some("price_estimate".to_string()),
         metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_native_metal_stepwise(_repeats: usize) -> Option<BenchmarkResult> {
+    #[cfg(not(feature = "metal-native"))]
+    {
+        return None;
+    }
+
+    #[cfg(feature = "metal-native")]
+    {
+        let backend = AppleMetalBackend::new();
+        let mut devices = backend.discover_devices();
+        let device = devices.pop()?;
+
+        let plan = ExecutionPlan {
+            backend: BackendId::AppleMetal,
+            planner_mode: PlannerMode::Balanced,
+            n_paths: MC_PATHS,
+            n_steps: MC_STEPS,
+            features: FeatureSummary::default(),
+            decision_report: BackendDecisionReport {
+                selected_backend: BackendId::AppleMetal,
+                reasons: vec!["native metal benchmark".to_string()],
+                rejected_backends: Vec::new(),
+            },
+        };
+
+        let artifact = backend.compile(&plan, &device).ok()?;
+        let mut runtimes = Vec::with_capacity(_repeats);
+        let mut prices = Vec::with_capacity(_repeats);
+
+        for i in 0.._repeats {
+            let cfg = EuropeanCallConfig {
+                n_paths: MC_PATHS,
+                n_steps: MC_STEPS,
+                seed: 4_200 + i as u64,
+                technique: MonteCarloTechnique::Standard,
+                ..EuropeanCallConfig::default()
+            };
+
+            let started = Instant::now();
+            let result = backend
+                .execute(&artifact, &BackendExecutionInput::EuropeanCall(cfg))
+                .ok()?;
+            let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            runtimes.push(runtime_ms.max(result.runtime_ms));
+            prices.push(result.price);
+        }
+
+        let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+        let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+        Some(BenchmarkResult {
+            benchmark_name: "mc_metal_european_call_native".to_string(),
+            benchmark_version: "0.1".to_string(),
+            implementation: "mc-core::backend::metal::AppleMetalBackend::execute".to_string(),
+            backend: "apple_metal".to_string(),
+            methodology: Some("stepwise_paths_native_metal".to_string()),
+            planner_mode: "n/a".to_string(),
+            iterations: _repeats,
+            total_runtime_ms: avg_runtime_ms * _repeats as f64,
+            per_iteration_us: avg_runtime_ms * 1_000.0,
+            throughput_per_sec: if avg_runtime_ms == 0.0 {
+                MC_PATHS as f64
+            } else {
+                (MC_PATHS as f64) / (avg_runtime_ms / 1_000.0)
+            },
+            metric_name: Some("price_estimate".to_string()),
+            metric_value: Some(avg_price),
+        })
     }
 }
 

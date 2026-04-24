@@ -59,7 +59,9 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add host-side Metal native staging boundary and feature gate.
 - `done` Add first staged Metal shader source and `.air` / `.metallib` compile-attempt path for the core workload.
 - `done` Implement first native Metal launch path for the staged kernel on macOS using runtime compilation.
-- `todo` Move Metal RNG generation and reductions fully on-device for a performance-grade path.
+- `done` Add CPU-vs-native-Metal benchmark coverage on macOS.
+- `done` Move first Metal-native RNG generation and partial reductions on-device.
+- `todo` Remove Swift helper / runtime compilation overhead via persistent native host integration.
 - `todo` Add planner heuristics for Apple backend selection.
 
 ## Phase 6: Benchmarks and Tuning

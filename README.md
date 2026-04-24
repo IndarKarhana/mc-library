@@ -70,9 +70,9 @@ The Metal path now includes a matching staged shader source at:
 
 - `crates/mc-core/src/backend/kernels/european_call_stepwise_v1.metal`
 
-When `metal-native` is enabled and Apple developer tools are available, the backend attempts `.air` and `.metallib` compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native Metal launch support lands.
+When `metal-native` is enabled and Apple developer tools are available, the backend attempts `.air` and `.metallib` compilation during artifact staging and records the result in native artifact metadata.
 
-On macOS, the first Metal-native execution path is now wired through the Metal runtime itself using a staged Swift helper. That means the current Apple GPU path can execute the first step-wise European-call kernel natively on supported Macs even when standalone `xcrun metal` tooling is not available. The current implementation still uses CPU-generated normals and is a narrow v1 path, so it is a correctness-first bring-up rather than a final performance path.
+On macOS, the first Metal-native execution path is now wired through the Metal runtime itself using a staged Swift helper. That means the current Apple GPU path can execute the first step-wise European-call kernel natively on supported Macs even when standalone `xcrun metal` tooling is not available. The current implementation now generates shocks on-device and performs partial reductions on-device, but it is still a narrow v1 path and it still pays heavy runtime helper overhead, so it remains a correctness-first bring-up rather than a final performance path.
 
 ## Running Tests
 
@@ -112,12 +112,13 @@ GPU testing strategy is in `docs/gpu-testing-strategy.md`.
 
 From the latest release benchmark run:
 
-- fair step-wise Rust CPU path: `18.520 ms`
-- step-wise Rust antithetic path: `35.972 ms`
-- step-wise Rust control-variate path: `18.703 ms`
+- fair step-wise Rust CPU path: `14.491 ms`
+- step-wise Rust antithetic path: `29.068 ms`
+- step-wise Rust control-variate path: `14.214 ms`
+- native Metal step-wise path on macOS: `637.569 ms`
 - step-wise NumPy baseline: see `benchmarks/release-results.json`
 - step-wise Numba baseline: see `benchmarks/release-results.json`
-- specialized Rust terminal-distribution fast path: `0.756 ms`
+- specialized Rust terminal-distribution fast path: `0.637 ms`
 - control-variate stderr ratio vs standard:
   - step-wise: `0.411`
   - terminal: `0.412`
