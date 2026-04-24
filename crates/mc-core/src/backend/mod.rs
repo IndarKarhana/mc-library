@@ -99,6 +99,9 @@ pub struct NativeArtifactMetadata {
     pub source_language: String,
     pub feature_gate: String,
     pub toolchain_available: bool,
+    pub compile_requested: bool,
+    pub compile_succeeded: bool,
+    pub compiled_module_path: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -372,6 +375,9 @@ pub(crate) fn make_native_artifact_metadata(
     source_language: impl Into<String>,
     feature_gate: impl Into<String>,
     toolchain_available: bool,
+    compile_requested: bool,
+    compile_succeeded: bool,
+    compiled_module_path: Option<String>,
     notes: Vec<String>,
 ) -> NativeArtifactMetadata {
     NativeArtifactMetadata {
@@ -381,6 +387,9 @@ pub(crate) fn make_native_artifact_metadata(
         source_language: source_language.into(),
         feature_gate: feature_gate.into(),
         toolchain_available,
+        compile_requested,
+        compile_succeeded,
+        compiled_module_path,
         notes,
     }
 }

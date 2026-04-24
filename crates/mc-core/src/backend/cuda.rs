@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 use super::{
@@ -11,6 +13,12 @@ use crate::SupportLevel;
 pub fn cuda_native_feature_enabled() -> bool {
     cfg!(feature = "cuda-native")
 }
+
+const FIRST_CUDA_KERNEL_ENTRY_POINT: &str = "mc_cuda_european_call_stepwise_v1";
+const FIRST_CUDA_KERNEL_FAMILY: &str = "european_call_stepwise_v1";
+const FIRST_CUDA_KERNEL_SOURCE_MODULE: &str =
+    "crates/mc-core/src/backend/kernels/european_call_stepwise_v1.cu";
+const FIRST_CUDA_KERNEL_SOURCE: &str = include_str!("kernels/european_call_stepwise_v1.cu");
 
 #[derive(Debug, Clone, Default)]
 pub struct NvidiaCudaBackend;
@@ -149,15 +157,20 @@ impl RuntimeBackend for NvidiaCudaBackend {
         device: &DeviceInfo,
     ) -> Result<CompiledArtifact, BackendError> {
         self.validate_device(device)?;
+        let compile_status = stage_native_cuda_kernel(plan);
+        let notes = cuda_kernel_notes(plan, &compile_status);
 
         let native_artifact = Some(make_native_artifact_metadata(
-            "european_call_stepwise_v1",
-            "mc_cuda_european_call_stepwise_v1",
-            "crates/mc-core/src/backend/cuda.rs",
-            "cuda_c_host_staging",
+            FIRST_CUDA_KERNEL_FAMILY,
+            FIRST_CUDA_KERNEL_ENTRY_POINT,
+            FIRST_CUDA_KERNEL_SOURCE_MODULE,
+            "cuda_c++",
             "cuda-native",
-            probe_cuda_toolchain(),
-            cuda_kernel_notes(plan),
+            compile_status.toolchain_available,
+            compile_status.compile_requested,
+            compile_status.compile_succeeded,
+            compile_status.compiled_module_path,
+            notes,
         ));
 
         Ok(compile_gpu_fallback_artifact(
@@ -229,7 +242,16 @@ fn supports_first_cuda_kernel_shape(plan: &ExecutionPlan) -> bool {
     plan.features.conditional_expression_count == 0 && plan.features.reduction_count <= 1
 }
 
-fn cuda_kernel_notes(plan: &ExecutionPlan) -> Vec<String> {
+#[derive(Debug, Clone)]
+struct CudaKernelStageStatus {
+    toolchain_available: bool,
+    compile_requested: bool,
+    compile_succeeded: bool,
+    compiled_module_path: Option<String>,
+    diagnostics: Vec<String>,
+}
+
+fn cuda_kernel_notes(plan: &ExecutionPlan, compile_status: &CudaKernelStageStatus) -> Vec<String> {
     let mut notes = vec![
         "host-side CUDA kernel ABI is staged but runtime still executes through delegated CPU fallback"
             .to_string(),
@@ -237,6 +259,7 @@ fn cuda_kernel_notes(plan: &ExecutionPlan) -> Vec<String> {
             "validated target shape: n_paths={} n_steps={} conditional_expressions={}",
             plan.n_paths, plan.n_steps, plan.features.conditional_expression_count
         ),
+        format!("kernel_entry_point={FIRST_CUDA_KERNEL_ENTRY_POINT}"),
     ];
 
     if cuda_native_feature_enabled() {
@@ -250,6 +273,8 @@ fn cuda_kernel_notes(plan: &ExecutionPlan) -> Vec<String> {
         );
     }
 
+    notes.extend(compile_status.diagnostics.iter().cloned());
+
     notes
 }
 
@@ -259,4 +284,96 @@ fn probe_cuda_toolchain() -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+fn stage_native_cuda_kernel(plan: &ExecutionPlan) -> CudaKernelStageStatus {
+    let toolchain_available = probe_cuda_toolchain();
+    let compile_requested = cuda_native_feature_enabled();
+
+    if !compile_requested {
+        return CudaKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: false,
+            compiled_module_path: None,
+            diagnostics: vec![
+                "native CUDA compile skipped because the `cuda-native` feature is disabled"
+                    .to_string(),
+            ],
+        };
+    }
+
+    if !toolchain_available {
+        return CudaKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: false,
+            compiled_module_path: None,
+            diagnostics: vec![
+                "native CUDA compile requested but `nvcc` was not available on this machine"
+                    .to_string(),
+            ],
+        };
+    }
+
+    match compile_cuda_kernel_to_ptx(plan) {
+        Ok(ptx_path) => CudaKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: true,
+            compiled_module_path: Some(ptx_path.display().to_string()),
+            diagnostics: vec![format!(
+                "native CUDA PTX compilation succeeded for staged kernel: {}",
+                ptx_path.display()
+            )],
+        },
+        Err(error) => CudaKernelStageStatus {
+            toolchain_available,
+            compile_requested,
+            compile_succeeded: false,
+            compiled_module_path: None,
+            diagnostics: vec![format!("native CUDA PTX compilation failed: {error}")],
+        },
+    }
+}
+
+fn compile_cuda_kernel_to_ptx(plan: &ExecutionPlan) -> Result<PathBuf, String> {
+    let output_dir = staged_cuda_output_dir();
+    fs::create_dir_all(&output_dir)
+        .map_err(|error| format!("unable to create CUDA staging directory: {error}"))?;
+
+    let source_path = output_dir.join(format!(
+        "{FIRST_CUDA_KERNEL_FAMILY}_{}paths_{}steps.cu",
+        plan.n_paths, plan.n_steps
+    ));
+    let ptx_path = output_dir.join(format!(
+        "{FIRST_CUDA_KERNEL_FAMILY}_{}paths_{}steps.ptx",
+        plan.n_paths, plan.n_steps
+    ));
+
+    fs::write(&source_path, FIRST_CUDA_KERNEL_SOURCE)
+        .map_err(|error| format!("unable to write staged CUDA source: {error}"))?;
+
+    let output = Command::new("nvcc")
+        .args([
+            "--ptx",
+            "-std=c++14",
+            "-lineinfo",
+            source_path.to_string_lossy().as_ref(),
+            "-o",
+            ptx_path.to_string_lossy().as_ref(),
+        ])
+        .output()
+        .map_err(|error| format!("failed to spawn nvcc: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+
+    Ok(ptx_path)
+}
+
+fn staged_cuda_output_dir() -> PathBuf {
+    std::env::temp_dir().join("mc-library").join("cuda")
 }

@@ -28,6 +28,12 @@ It now also validates feature-gated native backend staging through:
 - `cargo test -p mc-core --features metal-native`
 - `cargo test -p mc-core --features \"cuda-native metal-native\"`
 
+For CUDA specifically, this now also covers:
+
+- a real staged `.cu` kernel source file
+- PTX compile-attempt metadata in compiled artifacts
+- environment-sensitive `nvcc` probing without requiring a CUDA device
+
 ## Layer 1: CPU Reference Truth
 
 The CPU runtime is the numerical source of truth for the current European-call workload family.

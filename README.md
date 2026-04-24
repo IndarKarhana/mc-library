@@ -60,6 +60,12 @@ The current GPU backends execute through explicit delegated CPU fallback semanti
 
 These feature flags validate native backend boundaries, kernel metadata, and toolchain probing without requiring local GPU hardware.
 
+The CUDA path now includes an actual staged kernel source at:
+
+- `crates/mc-core/src/backend/kernels/european_call_stepwise_v1.cu`
+
+When `cuda-native` is enabled and `nvcc` is available, the backend attempts PTX compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native launch support lands.
+
 ## Running Tests
 
 ```bash

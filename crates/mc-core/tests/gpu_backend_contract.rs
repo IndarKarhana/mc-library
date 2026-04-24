@@ -1,13 +1,3 @@
-#[cfg(any(
-    feature = "cuda-native",
-    not(any(feature = "cuda-native", feature = "metal-native"))
-))]
-use mc_core::cuda_native_feature_enabled;
-#[cfg(any(
-    feature = "metal-native",
-    not(any(feature = "cuda-native", feature = "metal-native"))
-))]
-use mc_core::metal_native_feature_enabled;
 use mc_core::{
     builtin_backends, estimate_gpu_bytes_per_path, european_call_price_mc_cpu_stepwise,
     plan_gpu_chunking, AppleMetalBackend, ArtifactExecutionMode, BackendDecisionReport,
@@ -15,6 +5,8 @@ use mc_core::{
     FeatureSummary, GpuChunkingConfig, NvidiaCudaBackend, PlannerMode, RejectedBackend,
     RuntimeBackend, SupportLevel,
 };
+#[allow(unused_imports)]
+use mc_core::{cuda_native_feature_enabled, metal_native_feature_enabled};
 
 fn test_plan() -> ExecutionPlan {
     ExecutionPlan {
@@ -138,7 +130,22 @@ fn cuda_compile_succeeds_with_fallback_artifact() {
         .native_artifact
         .expect("cuda compile should produce native staging metadata");
     assert_eq!(native.kernel_family, "european_call_stepwise_v1");
+    assert_eq!(native.entry_point, "mc_cuda_european_call_stepwise_v1");
     assert_eq!(native.feature_gate, "cuda-native");
+    assert_eq!(
+        native.source_module,
+        "crates/mc-core/src/backend/kernels/european_call_stepwise_v1.cu"
+    );
+    if cuda_native_feature_enabled() {
+        assert!(native.compile_requested);
+        if native.compile_succeeded {
+            assert!(native.compiled_module_path.is_some());
+        }
+    } else {
+        assert!(!native.compile_requested);
+        assert!(!native.compile_succeeded);
+        assert!(native.compiled_module_path.is_none());
+    }
 }
 
 #[test]
@@ -332,6 +339,23 @@ fn default_build_reports_native_feature_gates_disabled() {
 #[test]
 fn cuda_native_feature_gate_reports_enabled_when_requested() {
     assert!(cuda_native_feature_enabled());
+}
+
+#[cfg(feature = "cuda-native")]
+#[test]
+fn cuda_native_compile_records_requested_status() {
+    let backend = NvidiaCudaBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_cuda_device())
+        .expect("cuda compile should succeed with native staging metadata");
+    let native = artifact
+        .native_artifact
+        .expect("cuda compile should include native metadata");
+
+    assert!(native.compile_requested);
+    if native.compile_succeeded {
+        assert!(native.compiled_module_path.is_some());
+    }
 }
 
 #[cfg(feature = "metal-native")]

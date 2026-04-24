@@ -46,7 +46,8 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Implement CUDA backend contract and device discovery.
 - `done` Add truthful delegated fallback execution path for CUDA backend while native kernels are in progress.
 - `done` Add host-side CUDA native staging boundary and feature gate.
-- `todo` Implement first CUDA kernels for core workload path.
+- `done` Add first staged CUDA kernel source and PTX compile-attempt path for the core workload.
+- `todo` Implement native CUDA launch and reduction path for the staged kernel.
 - `done` Add GPU memory and chunking strategy.
 - `done` Add planner heuristics for CUDA selection.
 

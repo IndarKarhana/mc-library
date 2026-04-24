@@ -157,6 +157,9 @@ impl RuntimeBackend for AppleMetalBackend {
             "metal_shading_language_host_staging",
             "metal-native",
             probe_metal_toolchain(),
+            metal_native_feature_enabled(),
+            false,
+            None,
             metal_kernel_notes(plan),
         ));
 
