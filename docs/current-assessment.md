@@ -21,6 +21,7 @@ Today we have:
 - an actual staged CUDA kernel source plus PTX compile-attempt plumbing behind `cuda-native`
 - shared GPU launch and buffer contracts for staged native kernels
 - an actual staged Metal shader source plus `.air` / `.metallib` compile-attempt plumbing behind `metal-native`
+- a first native Metal execution path on macOS using runtime shader compilation via Metal + Swift
 
 Today we do not yet have:
 
@@ -49,7 +50,7 @@ The architecture docs, roadmap, benchmark artifacts, and quality rules are unusu
 
 ### 1. GPU acceleration is still not native yet
 
-The planner and backend layers now execute through explicit delegated CPU fallback semantics, and they now include host-side native staging boundaries for CUDA and Metal. CUDA has a real staged `.cu` kernel source and PTX compile-attempt path, and Metal has a real staged `.metal` source and `.air` / `.metallib` compile-attempt path. They still do not run native CUDA or Metal kernels on-device yet.
+The planner and backend layers now execute through explicit delegated CPU fallback semantics, and they now include host-side native staging boundaries for CUDA and Metal. CUDA has a real staged `.cu` kernel source and PTX compile-attempt path. Metal has a real staged `.metal` source, `.air` / `.metallib` compile-attempt path, and a first native runtime execution path on macOS. CUDA still does not run native kernels on-device yet, and the current Metal path is still a narrow correctness-first v1 bring-up.
 
 That means the product is operationally honest and integration-ready, but it is not yet GPU-accelerated in the way users will ultimately expect.
 

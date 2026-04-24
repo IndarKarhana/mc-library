@@ -72,6 +72,8 @@ The Metal path now includes a matching staged shader source at:
 
 When `metal-native` is enabled and Apple developer tools are available, the backend attempts `.air` and `.metallib` compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native Metal launch support lands.
 
+On macOS, the first Metal-native execution path is now wired through the Metal runtime itself using a staged Swift helper. That means the current Apple GPU path can execute the first step-wise European-call kernel natively on supported Macs even when standalone `xcrun metal` tooling is not available. The current implementation still uses CPU-generated normals and is a narrow v1 path, so it is a correctness-first bring-up rather than a final performance path.
+
 ## Running Tests
 
 ```bash

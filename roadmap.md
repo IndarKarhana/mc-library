@@ -58,7 +58,8 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add truthful delegated fallback execution path for Apple Metal backend while native kernels are in progress.
 - `done` Add host-side Metal native staging boundary and feature gate.
 - `done` Add first staged Metal shader source and `.air` / `.metallib` compile-attempt path for the core workload.
-- `todo` Implement native Metal launch and reduction path for the staged kernel.
+- `done` Implement first native Metal launch path for the staged kernel on macOS using runtime compilation.
+- `todo` Move Metal RNG generation and reductions fully on-device for a performance-grade path.
 - `todo` Add planner heuristics for Apple backend selection.
 
 ## Phase 6: Benchmarks and Tuning

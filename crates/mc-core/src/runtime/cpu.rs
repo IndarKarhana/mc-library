@@ -326,6 +326,60 @@ pub fn european_call_price_mc_cpu_stepwise(cfg: &EuropeanCallConfig) -> European
     summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
 }
 
+pub(crate) fn generate_stepwise_standard_normals_f32(
+    seed: u64,
+    n_paths: usize,
+    n_steps: usize,
+) -> Vec<f32> {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut normals = Vec::with_capacity(n_paths.saturating_mul(n_steps));
+
+    for _ in 0..n_paths.saturating_mul(n_steps) {
+        normals.push(rng.standard_normal() as f32);
+    }
+
+    normals
+}
+
+#[allow(dead_code)]
+pub(crate) fn european_call_price_mc_stepwise_from_f32_normals(
+    cfg: &EuropeanCallConfig,
+    normals: &[f32],
+) -> EuropeanCallResult {
+    let expected = cfg.n_paths.saturating_mul(cfg.n_steps);
+    assert_eq!(
+        normals.len(),
+        expected,
+        "stepwise normal buffer must contain n_paths * n_steps values"
+    );
+
+    let log_s0 = cfg.s0.ln() as f32;
+    let strike = cfg.k as f32;
+    let dt = (cfg.t / cfg.n_steps as f64) as f32;
+    let drift_dt = ((cfg.r - 0.5 * cfg.sigma * cfg.sigma) as f32) * dt;
+    let vol_dt = (cfg.sigma as f32) * dt.sqrt();
+    let discount = ((-cfg.r * cfg.t).exp()) as f32;
+
+    let mut payoff_sum = 0.0f64;
+    let mut payoff_sq_sum = 0.0f64;
+
+    for path_idx in 0..cfg.n_paths {
+        let mut log_s_t = log_s0;
+        let base_offset = path_idx * cfg.n_steps;
+        for step_idx in 0..cfg.n_steps {
+            let z = normals[base_offset + step_idx];
+            log_s_t += drift_dt + vol_dt * z;
+        }
+
+        let s_t = log_s_t.exp();
+        let payoff = ((s_t - strike).max(0.0) * discount) as f64;
+        payoff_sum += payoff;
+        payoff_sq_sum += payoff * payoff;
+    }
+
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+}
+
 fn simulate_terminal_parallel(
     cfg: &EuropeanCallConfig,
     thread_count: usize,

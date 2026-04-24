@@ -39,6 +39,7 @@ For Metal specifically, this now also covers:
 - a real staged `.metal` shader source file
 - `.air` / `.metallib` compile-attempt metadata in compiled artifacts
 - environment-sensitive Apple toolchain probing without requiring successful GPU execution
+- a native macOS runtime execution path validated against a CPU reference using the same generated normals
 
 ## Layer 1: CPU Reference Truth
 
