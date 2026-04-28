@@ -22,7 +22,8 @@ pub use planner::{
 };
 pub use runtime::{
     arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
-    compare_arithmetic_asian_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    basket_call_price_mc_cpu, compare_arithmetic_asian_sampling_quality_cpu,
+    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
     compare_european_call_sampling_quality_cpu, diagnose_standard_normal_samples_cpu,
     diagnose_standard_normals_cpu, down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
@@ -33,10 +34,10 @@ pub use runtime::{
     ArithmeticAsianCallPricer, ArithmeticAsianCallResult, ArithmeticAsianMlmcAllocationLevel,
     ArithmeticAsianMlmcAllocationPlan, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcLevelResult,
     ArithmeticAsianMlmcPricer, ArithmeticAsianMlmcResult, ArithmeticAsianMlmcToleranceConfig,
-    ArithmeticAsianMlmcTolerancePlan, BackendMethodSupport, DownAndOutCallConfig,
-    DownAndOutCallPricer, DownAndOutCallResult, EuropeanCallConfig, EuropeanCallMethod,
-    EuropeanCallPricer, EuropeanCallResult, GaussianUncertaintyConfig, GaussianUncertaintyResult,
-    MonteCarloMethodCapability, MonteCarloMethodCategory, MonteCarloRng, MonteCarloTechnique,
-    PricingQualityComparison, PricingWorkloadFamily, SamplingMethod, StandardNormalDiagnostics,
-    StructuredSamplingGuidance,
+    ArithmeticAsianMlmcTolerancePlan, BackendMethodSupport, BasketCallConfig, BasketCallPricer,
+    BasketCallResult, DownAndOutCallConfig, DownAndOutCallPricer, DownAndOutCallResult,
+    EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer, EuropeanCallResult,
+    GaussianUncertaintyConfig, GaussianUncertaintyResult, MonteCarloMethodCapability,
+    MonteCarloMethodCategory, MonteCarloRng, MonteCarloTechnique, PricingQualityComparison,
+    PricingWorkloadFamily, SamplingMethod, StandardNormalDiagnostics, StructuredSamplingGuidance,
 };

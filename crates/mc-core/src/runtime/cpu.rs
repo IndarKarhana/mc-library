@@ -84,6 +84,7 @@ pub enum PricingWorkloadFamily {
     EuropeanCall,
     ArithmeticAsianCall,
     DownAndOutCall,
+    BasketCall,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -365,6 +366,31 @@ pub fn compare_down_and_out_sampling_quality_cpu(
         sampling,
         cfg.n_paths,
         cfg.n_steps,
+        cfg.seed,
+        baseline,
+        structured,
+    )
+}
+
+pub fn compare_basket_call_sampling_quality_cpu(
+    cfg: &BasketCallConfig,
+    sampling: SamplingMethod,
+) -> PricingQualityComparison {
+    let mut baseline_cfg = *cfg;
+    baseline_cfg.sampling = SamplingMethod::Pseudorandom;
+    baseline_cfg.technique = MonteCarloTechnique::Standard;
+
+    let mut structured_cfg = baseline_cfg;
+    structured_cfg.sampling = sampling;
+
+    let baseline = basket_call_price_mc_cpu(&baseline_cfg);
+    let structured = basket_call_price_mc_cpu(&structured_cfg);
+
+    build_pricing_quality_comparison(
+        PricingWorkloadFamily::BasketCall,
+        sampling,
+        cfg.n_paths,
+        2,
         cfg.seed,
         baseline,
         structured,
@@ -858,9 +884,52 @@ impl Default for DownAndOutCallConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct BasketCallConfig {
+    pub s01: f64,
+    pub s02: f64,
+    pub k: f64,
+    pub r: f64,
+    pub sigma1: f64,
+    pub sigma2: f64,
+    pub rho: f64,
+    pub weight1: f64,
+    pub weight2: f64,
+    pub t: f64,
+    pub n_paths: usize,
+    pub seed: u64,
+    pub n_threads: usize,
+    pub technique: MonteCarloTechnique,
+    pub sampling: SamplingMethod,
+}
+
+impl Default for BasketCallConfig {
+    fn default() -> Self {
+        Self {
+            s01: 100.0,
+            s02: 95.0,
+            k: 100.0,
+            r: 0.03,
+            sigma1: 0.2,
+            sigma2: 0.25,
+            rho: 0.35,
+            weight1: 0.5,
+            weight2: 0.5,
+            t: 1.0,
+            n_paths: 100_000,
+            seed: 42,
+            n_threads: 0,
+            technique: MonteCarloTechnique::Standard,
+            sampling: SamplingMethod::Pseudorandom,
+        }
+    }
+}
+
 pub type DownAndOutCallResult = EuropeanCallResult;
 
 pub type ArithmeticAsianCallResult = EuropeanCallResult;
+
+pub type BasketCallResult = EuropeanCallResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArithmeticAsianCallPricer {
@@ -1224,6 +1293,148 @@ impl DownAndOutCallPricer {
 
     pub fn price(&self) -> DownAndOutCallResult {
         down_and_out_call_price_mc_cpu(&self.config)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BasketCallPricer {
+    config: BasketCallConfig,
+}
+
+impl Default for BasketCallPricer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BasketCallPricer {
+    pub fn new() -> Self {
+        Self {
+            config: BasketCallConfig::default(),
+        }
+    }
+
+    pub fn from_config(config: BasketCallConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn spot1(mut self, value: f64) -> Self {
+        self.config.s01 = value;
+        self
+    }
+
+    pub fn spot2(mut self, value: f64) -> Self {
+        self.config.s02 = value;
+        self
+    }
+
+    pub fn strike(mut self, value: f64) -> Self {
+        self.config.k = value;
+        self
+    }
+
+    pub fn rate(mut self, value: f64) -> Self {
+        self.config.r = value;
+        self
+    }
+
+    pub fn volatility1(mut self, value: f64) -> Self {
+        self.config.sigma1 = value;
+        self
+    }
+
+    pub fn volatility2(mut self, value: f64) -> Self {
+        self.config.sigma2 = value;
+        self
+    }
+
+    pub fn correlation(mut self, value: f64) -> Self {
+        self.config.rho = value;
+        self
+    }
+
+    pub fn weights(mut self, weight1: f64, weight2: f64) -> Self {
+        self.config.weight1 = weight1;
+        self.config.weight2 = weight2;
+        self
+    }
+
+    pub fn maturity(mut self, value: f64) -> Self {
+        self.config.t = value;
+        self
+    }
+
+    pub fn paths(mut self, value: usize) -> Self {
+        self.config.n_paths = value;
+        self
+    }
+
+    pub fn seed(mut self, value: u64) -> Self {
+        self.config.seed = value;
+        self
+    }
+
+    pub fn threads(mut self, value: usize) -> Self {
+        self.config.n_threads = value;
+        self
+    }
+
+    pub fn technique(mut self, value: MonteCarloTechnique) -> Self {
+        self.config.technique = value;
+        self
+    }
+
+    pub fn sampling(mut self, value: SamplingMethod) -> Self {
+        self.config.sampling = value;
+        self
+    }
+
+    pub fn standard(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Standard;
+        self
+    }
+
+    pub fn antithetic(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Antithetic;
+        self
+    }
+
+    pub fn control_variate(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::ControlVariate;
+        self
+    }
+
+    pub fn randomized_halton(mut self) -> Self {
+        self.config.sampling = SamplingMethod::RandomizedHalton;
+        self
+    }
+
+    pub fn latin_hypercube(mut self) -> Self {
+        self.config.sampling = SamplingMethod::LatinHypercube;
+        self
+    }
+
+    pub fn scrambled_sobol(mut self) -> Self {
+        self.config.sampling = SamplingMethod::ScrambledSobol;
+        self
+    }
+
+    pub fn scrambled_sobol_brownian_bridge(mut self) -> Self {
+        self.config.sampling = SamplingMethod::ScrambledSobolBrownianBridge;
+        self
+    }
+
+    pub fn pseudorandom(mut self) -> Self {
+        self.config.sampling = SamplingMethod::Pseudorandom;
+        self
+    }
+
+    pub fn config(&self) -> &BasketCallConfig {
+        &self.config
+    }
+
+    pub fn price(&self) -> BasketCallResult {
+        basket_call_price_mc_cpu(&self.config)
     }
 }
 
@@ -1960,6 +2171,31 @@ pub fn down_and_out_call_price_mc_cpu(cfg: &DownAndOutCallConfig) -> DownAndOutC
             down_and_out_call_price_mc_stepwise_control_variate(cfg)
         }
     }
+}
+
+pub fn basket_call_price_mc_cpu(cfg: &BasketCallConfig) -> BasketCallResult {
+    validate_basket_call_config(cfg);
+
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        return simulate_basket_qmc(cfg);
+    }
+
+    match cfg.technique {
+        MonteCarloTechnique::Standard => simulate_basket_pseudorandom_standard(cfg),
+        MonteCarloTechnique::Antithetic => simulate_basket_pseudorandom_antithetic(cfg),
+        MonteCarloTechnique::ControlVariate => simulate_basket_pseudorandom_control_variate(cfg),
+    }
+}
+
+fn validate_basket_call_config(cfg: &BasketCallConfig) {
+    assert!(cfg.n_paths > 0, "n_paths must be > 0");
+    assert!(cfg.s01 > 0.0, "s01 must be > 0");
+    assert!(cfg.s02 > 0.0, "s02 must be > 0");
+    assert!(cfg.k >= 0.0, "k must be >= 0");
+    assert!(cfg.sigma1 >= 0.0, "sigma1 must be >= 0");
+    assert!(cfg.sigma2 >= 0.0, "sigma2 must be >= 0");
+    assert!(cfg.t > 0.0, "t must be > 0");
+    assert!((-1.0..=1.0).contains(&cfg.rho), "rho must be in [-1, 1]");
 }
 
 #[allow(dead_code)]
@@ -3919,6 +4155,144 @@ fn simulate_down_and_out_stepwise_qmc(cfg: &DownAndOutCallConfig) -> DownAndOutC
             summarize_control_variate(moments, cfg.s0)
         }
     }
+}
+
+fn simulate_basket_pseudorandom_standard(cfg: &BasketCallConfig) -> BasketCallResult {
+    let params = BasketTerminalParams::new(cfg);
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+
+    for _ in 0..cfg.n_paths {
+        let z1 = rng.standard_normal();
+        let z2 = rng.standard_normal();
+        let payoff = basket_terminal_payoff(cfg, &params, z1, z2).0;
+        payoff_sum += payoff;
+        payoff_sq_sum += payoff * payoff;
+    }
+
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+}
+
+fn simulate_basket_pseudorandom_antithetic(cfg: &BasketCallConfig) -> BasketCallResult {
+    let params = BasketTerminalParams::new(cfg);
+    let pair_count = cfg.n_paths.div_ceil(2);
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+
+    for _ in 0..pair_count {
+        let z1 = rng.standard_normal();
+        let z2 = rng.standard_normal();
+        let payoff_a = basket_terminal_payoff(cfg, &params, z1, z2).0;
+        let payoff_b = basket_terminal_payoff(cfg, &params, -z1, -z2).0;
+        let block_estimate = 0.5 * (payoff_a + payoff_b);
+        block_sum += block_estimate;
+        block_sq_sum += block_estimate * block_estimate;
+    }
+
+    summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+}
+
+fn simulate_basket_pseudorandom_control_variate(cfg: &BasketCallConfig) -> BasketCallResult {
+    let params = BasketTerminalParams::new(cfg);
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let mut moments = ControlVariateMoments::default();
+
+    for _ in 0..cfg.n_paths {
+        let z1 = rng.standard_normal();
+        let z2 = rng.standard_normal();
+        let (payoff, control) = basket_terminal_payoff(cfg, &params, z1, z2);
+        moments.record(payoff, control);
+    }
+
+    summarize_control_variate(moments, basket_control_expectation(cfg))
+}
+
+fn simulate_basket_qmc(cfg: &BasketCallConfig) -> BasketCallResult {
+    let params = BasketTerminalParams::new(cfg);
+    let qmc = StructuredNormalSampler::new(cfg.sampling, cfg.seed, cfg.n_paths, 2);
+    let mut normals = Vec::with_capacity(2);
+
+    match cfg.technique {
+        MonteCarloTechnique::Standard => {
+            let mut payoff_sum = 0.0;
+            let mut payoff_sq_sum = 0.0;
+            for path_idx in 0..cfg.n_paths {
+                qmc.fill_standard_normals(path_idx, 2, &mut normals);
+                let payoff = basket_terminal_payoff(cfg, &params, normals[0], normals[1]).0;
+                payoff_sum += payoff;
+                payoff_sq_sum += payoff * payoff;
+            }
+            summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+        }
+        MonteCarloTechnique::Antithetic => {
+            let pair_count = cfg.n_paths.div_ceil(2);
+            let mut block_sum = 0.0;
+            let mut block_sq_sum = 0.0;
+            for pair_idx in 0..pair_count {
+                qmc.fill_standard_normals(pair_idx, 2, &mut normals);
+                let payoff_a = basket_terminal_payoff(cfg, &params, normals[0], normals[1]).0;
+                let payoff_b = basket_terminal_payoff(cfg, &params, -normals[0], -normals[1]).0;
+                let block_estimate = 0.5 * (payoff_a + payoff_b);
+                block_sum += block_estimate;
+                block_sq_sum += block_estimate * block_estimate;
+            }
+            summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+        }
+        MonteCarloTechnique::ControlVariate => {
+            let mut moments = ControlVariateMoments::default();
+            for path_idx in 0..cfg.n_paths {
+                qmc.fill_standard_normals(path_idx, 2, &mut normals);
+                let (payoff, control) =
+                    basket_terminal_payoff(cfg, &params, normals[0], normals[1]);
+                moments.record(payoff, control);
+            }
+            summarize_control_variate(moments, basket_control_expectation(cfg))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BasketTerminalParams {
+    drift1: f64,
+    drift2: f64,
+    vol1: f64,
+    vol2: f64,
+    rho_orthogonal_scale: f64,
+    discount: f64,
+}
+
+impl BasketTerminalParams {
+    fn new(cfg: &BasketCallConfig) -> Self {
+        Self {
+            drift1: (cfg.r - 0.5 * cfg.sigma1 * cfg.sigma1) * cfg.t,
+            drift2: (cfg.r - 0.5 * cfg.sigma2 * cfg.sigma2) * cfg.t,
+            vol1: cfg.sigma1 * cfg.t.sqrt(),
+            vol2: cfg.sigma2 * cfg.t.sqrt(),
+            rho_orthogonal_scale: (1.0 - cfg.rho * cfg.rho).max(0.0).sqrt(),
+            discount: (-cfg.r * cfg.t).exp(),
+        }
+    }
+}
+
+fn basket_terminal_payoff(
+    cfg: &BasketCallConfig,
+    params: &BasketTerminalParams,
+    z1: f64,
+    z2_independent: f64,
+) -> (f64, f64) {
+    let z2 = cfg.rho * z1 + params.rho_orthogonal_scale * z2_independent;
+    let s1_t = cfg.s01 * (params.drift1 + params.vol1 * z1).exp();
+    let s2_t = cfg.s02 * (params.drift2 + params.vol2 * z2).exp();
+    let basket_terminal = cfg.weight1 * s1_t + cfg.weight2 * s2_t;
+    let payoff = (basket_terminal - cfg.k).max(0.0) * params.discount;
+    let control = basket_terminal * params.discount;
+    (payoff, control)
+}
+
+fn basket_control_expectation(cfg: &BasketCallConfig) -> f64 {
+    cfg.weight1 * cfg.s01 + cfg.weight2 * cfg.s02
 }
 
 pub(crate) fn summarize_payoffs(

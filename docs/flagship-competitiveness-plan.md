@@ -45,7 +45,7 @@ Deliverables:
 - `done` Add distribution-quality diagnostics for generated QMC samples.
 - `done` Compare QMC pricing quality across European, arithmetic Asian, and down-and-out workloads.
 - `done` Add first non-option UQ workload with analytic-mean error tracking.
-- `todo` Add basket workload QMC quality coverage.
+- `done` Add basket workload QMC quality coverage.
 - `todo` Add realized-error QMC studies where analytic references exist.
 
 Definition of done:
@@ -56,7 +56,7 @@ Definition of done:
 
 Next action:
 
-- Add basket workload QMC quality coverage, then add realized-error studies for workloads with analytic references.
+- Add realized-error QMC studies for workloads with analytic references, then feed those results into method recommendations.
 
 ## Phase 2: Beat QuantLib On Selected Monte Carlo Workloads
 

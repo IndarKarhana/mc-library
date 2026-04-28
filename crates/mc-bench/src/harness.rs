@@ -4,14 +4,15 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mc_core::{
     arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
-    compare_arithmetic_asian_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    basket_call_price_mc_cpu, compare_arithmetic_asian_sampling_quality_cpu,
+    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
     compare_european_call_sampling_quality_cpu, down_and_out_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
     gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, plan_execution,
     solve_arithmetic_asian_mlmc_tolerance_cpu, ArithmeticAsianCallConfig,
     ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcToleranceConfig, BackendId, BackendPreference,
-    BackendSupportReport, DownAndOutCallConfig, EuropeanCallConfig, GaussianUncertaintyConfig,
-    MonteCarloTechnique, PlannerMode, RunConfig, SamplingMethod,
+    BackendSupportReport, BasketCallConfig, DownAndOutCallConfig, EuropeanCallConfig,
+    GaussianUncertaintyConfig, MonteCarloTechnique, PlannerMode, RunConfig, SamplingMethod,
 };
 #[cfg(feature = "metal-native")]
 use mc_core::{
@@ -228,6 +229,45 @@ fn run_full_benchmarks() -> BenchmarkReport {
             "mc_cpu_qmc_quality_down_and_out_scrambled_sobol_brownian_bridge",
             "pricing_quality_down_and_out_scrambled_sobol_brownian_bridge",
         ),
+        benchmark_mc_rust_cpu_basket(
+            MC_REPEATS,
+            SamplingMethod::Pseudorandom,
+            "mc_cpu_basket_call_rust",
+            "basket_terminal_pseudorandom",
+        ),
+        benchmark_mc_rust_cpu_basket(
+            MC_REPEATS,
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_basket_call_rust_randomized_halton",
+            "basket_terminal_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_basket(
+            MC_REPEATS,
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_basket_call_rust_latin_hypercube",
+            "basket_terminal_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_basket(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_basket_call_rust_scrambled_sobol",
+            "basket_terminal_scrambled_sobol",
+        ),
+        benchmark_mc_rust_cpu_basket_pricing_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_qmc_quality_basket_randomized_halton",
+            "pricing_quality_basket_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_basket_pricing_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_quality_basket_latin_hypercube",
+            "pricing_quality_basket_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_basket_pricing_quality(
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_qmc_quality_basket_scrambled_sobol",
+            "pricing_quality_basket_scrambled_sobol",
+        ),
         benchmark_mc_rust_qmc_generation(
             MC_REPEATS,
             SamplingMethod::ScrambledSobol,
@@ -359,6 +399,17 @@ fn run_compact_benchmarks_inner() -> BenchmarkReport {
             SamplingMethod::RandomizedHalton,
             "mc_cpu_qmc_quality_down_and_out_randomized_halton",
             "pricing_quality_down_and_out_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_basket(
+            1,
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_basket_call_rust_scrambled_sobol",
+            "basket_terminal_scrambled_sobol",
+        ),
+        benchmark_mc_rust_cpu_basket_pricing_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_quality_basket_latin_hypercube",
+            "pricing_quality_basket_latin_hypercube",
         ),
         benchmark_mc_rust_gaussian_uncertainty(
             1,
@@ -492,6 +543,16 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         .iter()
         .find(|r| r.benchmark_name == "mc_cpu_gaussian_uncertainty_rust_pseudorandom")
         .and_then(|r| r.metric_value);
+    let basket_sobol_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_basket_call_rust_scrambled_sobol")
+        .and_then(|r| r.runtime_ms());
+    let basket_lhs_ratio = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_qmc_quality_basket_latin_hypercube")
+        .and_then(|r| r.metric_value);
 
     let mut competitor_rows = report
         .results
@@ -562,7 +623,7 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         out.push_str("Maintain lead plan:\n");
         out.push_str("- Keep the step-wise benchmark as the primary competitive claim.\n");
         out.push_str("- Keep RNG and loop hot path allocation-free.\n");
-        out.push_str("- Keep breadth claims tied to the workloads we have actually benchmarked: European, arithmetic Asian, and down-and-out.\n");
+        out.push_str("- Keep breadth claims tied to the workloads we have actually benchmarked: European, arithmetic Asian, down-and-out, basket, and Gaussian UQ.\n");
         out.push_str("- Expand competitor matrix to GPU baselines (JAX/CuPy/PyTorch/CUDA-native) when hardware is available.\n");
         if let Some(runtime) = halton_runtime {
             out.push_str(&format!(
@@ -617,6 +678,12 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
             out.push_str(&format!(
                 "- Gaussian UQ benchmark is live: Latin hypercube `{:.3} ms`, abs error `{:.6}` vs pseudorandom abs error `{:.6}`.\n",
                 runtime, lhs_error, random_error
+            ));
+        }
+        if let (Some(runtime), Some(ratio)) = (basket_sobol_runtime, basket_lhs_ratio) {
+            out.push_str(&format!(
+                "- Basket-call QMC breadth is live: scrambled Sobol basket pricing `{:.3} ms`, Latin-hypercube stderr ratio vs pseudorandom `{:.3}`.\n",
+                runtime, ratio
             ));
         }
         if let Some(ratio) = halton_cv_ratio {
@@ -3243,6 +3310,90 @@ fn benchmark_mc_rust_cpu_down_and_out_pricing_quality(
         benchmark_name: benchmark_name.to_string(),
         benchmark_version: "0.1".to_string(),
         implementation: "mc-core::runtime::cpu::compare_down_and_out_sampling_quality_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("stderr_ratio_vs_pseudorandom".to_string()),
+        metric_value: Some(comparison.stderr_ratio_vs_pseudorandom),
+    }
+}
+
+fn benchmark_mc_rust_cpu_basket(
+    repeats: usize,
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = BasketCallConfig {
+        n_paths: MC_PATHS,
+        sampling,
+        ..BasketCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = basket_call_price_mc_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::basket_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_basket_pricing_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = BasketCallConfig {
+        n_paths: MC_PATHS,
+        seed: 8_401,
+        ..BasketCallConfig::default()
+    };
+
+    let started = Instant::now();
+    let comparison = compare_basket_call_sampling_quality_cpu(&cfg, sampling);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::compare_basket_call_sampling_quality_cpu"
             .to_string(),
         backend: "cpu_native".to_string(),
         methodology: Some(methodology.to_string()),

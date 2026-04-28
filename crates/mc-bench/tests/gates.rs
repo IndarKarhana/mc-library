@@ -130,6 +130,7 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         "mc_cpu_qmc_quality_european_scrambled_sobol",
         "mc_cpu_qmc_quality_arithmetic_asian_latin_hypercube",
         "mc_cpu_qmc_quality_down_and_out_randomized_halton",
+        "mc_cpu_qmc_quality_basket_latin_hypercube",
     ] {
         let quality = find_metric(name, &report);
         assert_eq!(
@@ -145,6 +146,13 @@ fn benchmark_gates_hold_for_current_internal_suite() {
             ratio
         );
     }
+
+    let basket = find_metric("mc_cpu_basket_call_rust_scrambled_sobol", &report);
+    assert!(
+        basket.total_runtime_ms > 0.0,
+        "mc_cpu_basket_call_rust_scrambled_sobol gate failed: expected benchmark presence and positive runtime"
+    );
+    assert_eq!(basket.metric_name.as_deref(), Some("price_estimate"));
 
     let uq = find_metric("mc_cpu_gaussian_uncertainty_rust_scrambled_sobol", &report);
     assert_eq!(

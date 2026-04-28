@@ -1,6 +1,7 @@
 use mc_core::{
     arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
-    compare_arithmetic_asian_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    basket_call_price_mc_cpu, compare_arithmetic_asian_sampling_quality_cpu,
+    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
     compare_european_call_sampling_quality_cpu, diagnose_standard_normals_cpu,
     down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
@@ -8,10 +9,10 @@ use mc_core::{
     solve_arithmetic_asian_mlmc_tolerance_cpu, structured_sampling_guidance_cpu,
     tune_arithmetic_asian_mlmc_allocation_cpu, ArithmeticAsianCallConfig,
     ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcPricer,
-    ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport, DownAndOutCallConfig,
-    DownAndOutCallPricer, EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer,
-    GaussianUncertaintyConfig, MonteCarloRng, MonteCarloTechnique, PricingWorkloadFamily,
-    SamplingMethod,
+    ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport, BasketCallConfig, BasketCallPricer,
+    DownAndOutCallConfig, DownAndOutCallPricer, EuropeanCallConfig, EuropeanCallMethod,
+    EuropeanCallPricer, GaussianUncertaintyConfig, MonteCarloRng, MonteCarloTechnique,
+    PricingWorkloadFamily, SamplingMethod,
 };
 
 #[test]
@@ -243,6 +244,75 @@ fn pricing_quality_comparison_covers_path_dependent_workloads() {
     assert!(barrier.stderr_ratio_vs_pseudorandom > 0.0);
     assert!(asian.price_delta_abs.is_finite());
     assert!(barrier.price_delta_abs.is_finite());
+}
+
+#[test]
+fn basket_call_mc_is_deterministic_for_same_seed() {
+    let cfg = BasketCallConfig {
+        n_paths: 50_000,
+        seed: 95,
+        n_threads: 4,
+        ..BasketCallConfig::default()
+    };
+
+    let r1 = basket_call_price_mc_cpu(&cfg);
+    let r2 = basket_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn basket_call_structured_sampling_is_deterministic() {
+    let cfg = BasketCallConfig {
+        n_paths: 32_768,
+        seed: 96,
+        sampling: SamplingMethod::ScrambledSobol,
+        ..BasketCallConfig::default()
+    };
+
+    let r1 = basket_call_price_mc_cpu(&cfg);
+    let r2 = basket_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+    assert!(r1.price >= 0.0);
+    assert!(r1.stderr >= 0.0);
+}
+
+#[test]
+fn basket_call_pricer_builder_supports_expressive_configuration() {
+    let result = BasketCallPricer::new()
+        .spot1(105.0)
+        .spot2(90.0)
+        .strike(100.0)
+        .rate(0.02)
+        .volatility1(0.18)
+        .volatility2(0.28)
+        .correlation(0.4)
+        .weights(0.6, 0.4)
+        .maturity(1.5)
+        .paths(20_000)
+        .seed(97)
+        .latin_hypercube()
+        .control_variate()
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn basket_quality_comparison_reports_multi_asset_qmc_health() {
+    let cfg = BasketCallConfig {
+        n_paths: 16_384,
+        seed: 98,
+        ..BasketCallConfig::default()
+    };
+
+    let comparison = compare_basket_call_sampling_quality_cpu(&cfg, SamplingMethod::LatinHypercube);
+
+    assert_eq!(comparison.workload, PricingWorkloadFamily::BasketCall);
+    assert_eq!(comparison.steps, 2);
+    assert!(comparison.stderr_ratio_vs_pseudorandom > 0.0);
+    assert!(comparison.normal_diagnostics.finite);
+    assert!(comparison.price_delta_stderr_units.is_finite());
 }
 
 #[test]

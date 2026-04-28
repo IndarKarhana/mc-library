@@ -79,7 +79,7 @@ Practical notes:
 
 Status:
 
-- supported now on CPU for the current European, arithmetic Asian, and down-and-out workload families
+- supported now on CPU for the current European, arithmetic Asian, down-and-out, and two-asset basket workload families
 - benchmarked for the tracked European step-wise workload
 
 Why it matters:
@@ -158,6 +158,25 @@ Practical notes:
 
 - current benchmark is intentionally narrow and analytic-reference-backed
 - use it as the first UQ quality signal, not as a general UQ modeling interface
+
+### 0.5. Two-Asset Basket Pricing
+
+Status:
+
+- supported now as a CPU reference workload through `basket_call_price_mc_cpu`
+- benchmarked across pseudorandom, randomized Halton, Latin hypercube, and scrambled Sobol terminal sampling
+- tracked with QMC pricing-quality comparisons against the pseudorandom baseline
+
+Why it matters:
+
+- adds the first explicit multi-asset pricing workload
+- tests low-dimensional correlated sampling without Brownian-bridge path construction
+- gives agents a clearer bridge from single-asset examples toward portfolio-style payoffs
+
+Practical notes:
+
+- current support is a two-asset terminal GBM basket call, not a general basket-product framework
+- realized-error validation is still needed before claiming a QMC convergence win for basket options
 
 ### 1. Multilevel Monte Carlo
 

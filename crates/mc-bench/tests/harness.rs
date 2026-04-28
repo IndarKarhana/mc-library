@@ -89,6 +89,24 @@ fn rust_mc_benchmark_is_present() {
         Some("stderr_ratio_vs_pseudorandom")
     );
 
+    let basket = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_basket_call_rust_scrambled_sobol")
+        .expect("basket benchmark should be present");
+    assert!(basket.total_runtime_ms > 0.0);
+    assert_eq!(basket.metric_name.as_deref(), Some("price_estimate"));
+
+    let basket_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_qmc_quality_basket_latin_hypercube")
+        .expect("basket QMC pricing quality benchmark should be present");
+    assert_eq!(
+        basket_quality.metric_name.as_deref(),
+        Some("stderr_ratio_vs_pseudorandom")
+    );
+
     let uq = report
         .results
         .iter()
