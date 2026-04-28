@@ -1,8 +1,8 @@
-use mc_bench::{build_competitiveness_plan, run_default_benchmarks};
+use mc_bench::{build_competitiveness_plan, run_compact_benchmarks};
 
 #[test]
 fn benchmark_harness_produces_non_empty_results() {
-    let report = run_default_benchmarks();
+    let report = run_compact_benchmarks();
     assert!(
         !report.results.is_empty(),
         "expected benchmark results to be non-empty"
@@ -11,7 +11,7 @@ fn benchmark_harness_produces_non_empty_results() {
 
 #[test]
 fn benchmark_metrics_are_non_negative() {
-    let report = run_default_benchmarks();
+    let report = run_compact_benchmarks();
     for result in &report.results {
         assert!(result.total_runtime_ms >= 0.0);
         assert!(result.per_iteration_us >= 0.0);
@@ -21,7 +21,7 @@ fn benchmark_metrics_are_non_negative() {
 
 #[test]
 fn planner_accuracy_benchmark_has_accuracy_metric() {
-    let report = run_default_benchmarks();
+    let report = run_compact_benchmarks();
     let planner_accuracy = report
         .results
         .iter()
@@ -41,7 +41,7 @@ fn planner_accuracy_benchmark_has_accuracy_metric() {
 
 #[test]
 fn competitiveness_plan_is_generated() {
-    let report = run_default_benchmarks();
+    let report = run_compact_benchmarks();
     let plan = build_competitiveness_plan(&report);
     assert!(plan.contains("Competitiveness Plan"));
     assert!(plan.contains("Action plan") || plan.contains("Maintain lead plan"));
@@ -49,7 +49,7 @@ fn competitiveness_plan_is_generated() {
 
 #[test]
 fn rust_mc_benchmark_is_present() {
-    let report = run_default_benchmarks();
+    let report = run_compact_benchmarks();
     let rust_mc = report
         .results
         .iter()
@@ -77,5 +77,25 @@ fn rust_mc_benchmark_is_present() {
     assert_eq!(
         antithetic_quality.metric_name.as_deref(),
         Some("stderr_ratio_vs_standard")
+    );
+
+    let qmc_pricing_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_qmc_quality_european_scrambled_sobol")
+        .expect("QMC pricing quality benchmark should be present");
+    assert_eq!(
+        qmc_pricing_quality.metric_name.as_deref(),
+        Some("stderr_ratio_vs_pseudorandom")
+    );
+
+    let uq = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_gaussian_uncertainty_rust_scrambled_sobol")
+        .expect("Gaussian uncertainty benchmark should be present");
+    assert_eq!(
+        uq.metric_name.as_deref(),
+        Some("abs_error_vs_analytic_mean")
     );
 }

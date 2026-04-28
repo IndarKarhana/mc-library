@@ -1,10 +1,10 @@
 use mc_core::{
-    arithmetic_asian_call_price_mc_cpu, builtin_backends, estimate_gpu_bytes_per_path,
-    european_call_price_mc_cpu_stepwise, plan_gpu_chunking, AppleMetalBackend,
-    ArithmeticAsianCallConfig, ArtifactExecutionMode, BackendDecisionReport, BackendError,
-    BackendExecutionInput, BackendId, DeviceInfo, EuropeanCallConfig, ExecutionPlan,
-    FeatureSummary, GpuChunkingConfig, NvidiaCudaBackend, PlannerMode, RejectedBackend,
-    RuntimeBackend, SupportLevel,
+    arithmetic_asian_call_price_mc_cpu, builtin_backends, down_and_out_call_price_mc_cpu,
+    estimate_gpu_bytes_per_path, european_call_price_mc_cpu_stepwise, plan_gpu_chunking,
+    AppleMetalBackend, ArithmeticAsianCallConfig, ArtifactExecutionMode, BackendDecisionReport,
+    BackendError, BackendExecutionInput, BackendId, DeviceInfo, DownAndOutCallConfig,
+    EuropeanCallConfig, ExecutionPlan, FeatureSummary, GpuChunkingConfig, NvidiaCudaBackend,
+    PlannerMode, RejectedBackend, RuntimeBackend, SamplingMethod, SupportLevel,
 };
 #[allow(unused_imports)]
 use mc_core::{cuda_native_feature_enabled, metal_native_feature_enabled};
@@ -263,6 +263,31 @@ fn metal_execute_runs_with_deterministic_results_for_arithmetic_asian() {
 }
 
 #[test]
+fn metal_execute_runs_with_deterministic_results_for_down_and_out() {
+    let backend = AppleMetalBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_metal_device())
+        .expect("metal fallback compile should succeed");
+    let input = BackendExecutionInput::DownAndOutCall(DownAndOutCallConfig {
+        n_paths: artifact.n_paths,
+        n_steps: artifact.n_steps,
+        seed: 90,
+        n_threads: 2,
+        ..DownAndOutCallConfig::default()
+    });
+
+    let run1 = backend
+        .execute(&artifact, &input)
+        .expect("metal execute should succeed");
+    let run2 = backend
+        .execute(&artifact, &input)
+        .expect("metal execute should succeed");
+
+    assert_eq!(run1.price, run2.price);
+    assert_eq!(run1.stderr, run2.stderr);
+}
+
+#[test]
 fn gpu_fallback_execute_rejects_mismatched_workload_shape() {
     let backend = NvidiaCudaBackend::new();
     let artifact = backend
@@ -297,6 +322,27 @@ fn gpu_fallback_execute_rejects_mismatched_workload_shape_for_arithmetic_asian()
                 n_paths: artifact.n_paths + 1,
                 n_steps: artifact.n_steps,
                 ..ArithmeticAsianCallConfig::default()
+            }),
+        )
+        .expect_err("mismatched workload should be rejected");
+
+    assert!(matches!(err, BackendError::IncompatibleExecutionInput));
+}
+
+#[test]
+fn gpu_fallback_execute_rejects_mismatched_workload_shape_for_down_and_out() {
+    let backend = NvidiaCudaBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_cuda_device())
+        .expect("cuda fallback compile should succeed");
+
+    let err = backend
+        .execute(
+            &artifact,
+            &BackendExecutionInput::DownAndOutCall(DownAndOutCallConfig {
+                n_paths: artifact.n_paths + 1,
+                n_steps: artifact.n_steps,
+                ..DownAndOutCallConfig::default()
             }),
         )
         .expect_err("mismatched workload should be rejected");
@@ -357,6 +403,54 @@ fn metal_matches_cpu_reference_for_arithmetic_asian() {
     let error = (backend_run.price - cpu_run.price).abs();
     let tolerance = 6.0 * backend_run.stderr.max(cpu_run.stderr);
     assert!(error <= tolerance + 1e-12);
+}
+
+#[test]
+fn metal_matches_cpu_reference_for_down_and_out() {
+    let backend = AppleMetalBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_metal_device())
+        .expect("metal compile should succeed");
+    let cfg = DownAndOutCallConfig {
+        n_paths: artifact.n_paths,
+        n_steps: artifact.n_steps,
+        seed: 5_004,
+        n_threads: 4,
+        technique: mc_core::MonteCarloTechnique::ControlVariate,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let backend_run = backend
+        .execute(&artifact, &BackendExecutionInput::DownAndOutCall(cfg))
+        .expect("metal execute should succeed");
+    let cpu_run = down_and_out_call_price_mc_cpu(&cfg);
+
+    let error = (backend_run.price - cpu_run.price).abs();
+    let tolerance = 6.0 * backend_run.stderr.max(cpu_run.stderr);
+    assert!(error <= tolerance + 1e-12);
+}
+
+#[test]
+fn metal_falls_back_for_randomized_halton_requests() {
+    let backend = AppleMetalBackend::new();
+    let artifact = backend
+        .compile(&test_plan(), &mock_metal_device())
+        .expect("metal compile should succeed");
+    let cfg = EuropeanCallConfig {
+        n_paths: artifact.n_paths,
+        n_steps: artifact.n_steps,
+        seed: 5_105,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..EuropeanCallConfig::default()
+    };
+
+    let backend_run = backend
+        .execute(&artifact, &BackendExecutionInput::EuropeanCall(cfg))
+        .expect("metal execute should succeed via fallback");
+    let cpu_run = mc_core::european_call_price_mc_cpu_stepwise(&cfg);
+
+    assert_eq!(backend_run.price, cpu_run.price);
+    assert_eq!(backend_run.stderr, cpu_run.stderr);
 }
 
 #[test]

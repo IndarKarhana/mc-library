@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
 use mc_core::{
-    explain_execution_plan, extract_features, normalize_run_config, plan_execution, BackendId,
-    BackendPreference, BackendSupportReport, PlannerError, PlannerMode, RunConfig,
+    explain_execution_plan, extract_features, normalize_run_config, plan_execution,
+    recommend_method, BackendId, BackendPreference, BackendSupportReport,
+    MethodRecommendationRequest, MonteCarloTechnique, PlannerError, PlannerMode, RunConfig,
+    SamplingMethod, WorkloadFamily,
 };
 use mc_schema::{
     AxisKind, AxisSpec, Expr, ObservationSpec, ParameterSpec, RandomVarSpec, ReductionSpec,
@@ -110,6 +112,82 @@ fn normalize_run_config_rejects_zero_paths() {
 
     let err = normalize_run_config(config).expect_err("expected invalid run config error");
     assert!(matches!(err, PlannerError::InvalidRunConfig(_)));
+}
+
+#[test]
+fn method_recommendation_prefers_fast_control_variate_by_default() {
+    let recommendation = recommend_method(MethodRecommendationRequest {
+        workload_family: WorkloadFamily::EuropeanCall,
+        n_paths: 100_000,
+        n_steps: 64,
+        prefer_accuracy: false,
+        allow_slower_structured_sampling: false,
+    });
+
+    assert_eq!(recommendation.sampling, SamplingMethod::Pseudorandom);
+    assert_eq!(
+        recommendation.technique,
+        MonteCarloTechnique::ControlVariate
+    );
+}
+
+#[test]
+fn method_recommendation_prefers_sobol_bridge_when_accuracy_is_prioritized() {
+    let recommendation = recommend_method(MethodRecommendationRequest {
+        workload_family: WorkloadFamily::DownAndOutCall,
+        n_paths: 100_000,
+        n_steps: 64,
+        prefer_accuracy: true,
+        allow_slower_structured_sampling: true,
+    });
+
+    assert_eq!(
+        recommendation.sampling,
+        SamplingMethod::ScrambledSobolBrownianBridge
+    );
+    assert_eq!(
+        recommendation.technique,
+        MonteCarloTechnique::ControlVariate
+    );
+    assert!(recommendation
+        .caveats
+        .iter()
+        .any(|caveat| caveat.contains("CPU-reference only")));
+}
+
+#[test]
+fn method_recommendation_prefers_mlqmc_for_arithmetic_asian_accuracy_with_structured_sampling() {
+    let recommendation = recommend_method(MethodRecommendationRequest {
+        workload_family: WorkloadFamily::ArithmeticAsianCall,
+        n_paths: 100_000,
+        n_steps: 64,
+        prefer_accuracy: true,
+        allow_slower_structured_sampling: true,
+    });
+
+    assert_eq!(recommendation.method_id, "multilevel_randomized_qmc");
+    assert_eq!(recommendation.sampling, SamplingMethod::ScrambledSobol);
+    assert_eq!(recommendation.technique, MonteCarloTechnique::Standard);
+}
+
+#[test]
+fn method_recommendation_prefers_mlmc_for_path_dependent_accuracy_when_structured_sampling_is_not_allowed(
+) {
+    let recommendation = recommend_method(MethodRecommendationRequest {
+        workload_family: WorkloadFamily::ArithmeticAsianCall,
+        n_paths: 100_000,
+        n_steps: 64,
+        prefer_accuracy: true,
+        allow_slower_structured_sampling: false,
+    });
+
+    assert_eq!(recommendation.method_id, "multilevel_monte_carlo");
+    assert_eq!(recommendation.sampling, SamplingMethod::Pseudorandom);
+    assert_eq!(recommendation.technique, MonteCarloTechnique::Standard);
+    assert!(recommendation
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("path-dependent")));
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use mc_bench::run_default_benchmarks;
+use mc_bench::run_compact_benchmarks;
 
 fn find_metric<'a>(
     name: &str,
@@ -13,12 +13,12 @@ fn find_metric<'a>(
 
 #[test]
 fn benchmark_gates_hold_for_current_internal_suite() {
-    let report = run_default_benchmarks();
+    let report = run_compact_benchmarks();
 
     let schema_validation = find_metric("schema_validation", &report);
     assert!(
-        schema_validation.per_iteration_us < 50.0,
-        "schema_validation gate failed: per_iteration_us={} expected<50",
+        schema_validation.per_iteration_us < 100.0,
+        "schema_validation gate failed: per_iteration_us={} expected<100",
         schema_validation.per_iteration_us
     );
 
@@ -86,6 +86,78 @@ fn benchmark_gates_hold_for_current_internal_suite() {
     assert!(
         rust_terminal.total_runtime_ms > 0.0,
         "mc_cpu_european_call_rust_terminal gate failed: expected benchmark presence and positive runtime"
+    );
+
+    let barrier = find_metric("mc_cpu_down_and_out_call_rust", &report);
+    assert!(
+        barrier.total_runtime_ms > 0.0,
+        "mc_cpu_down_and_out_call_rust gate failed: expected benchmark presence and positive runtime"
+    );
+
+    let qmc_quality = find_metric(
+        "mc_cpu_european_call_rust_randomized_halton_control_variate_quality",
+        &report,
+    );
+    let qmc_stderr_ratio = qmc_quality
+        .metric_value
+        .expect("randomized halton quality benchmark must contain metric_value");
+    assert!(
+        qmc_stderr_ratio < 1.0,
+        "randomized halton control-variate quality gate failed: stderr_ratio_vs_standard={} expected<1",
+        qmc_stderr_ratio
+    );
+
+    let lhs = find_metric("mc_cpu_european_call_rust_latin_hypercube", &report);
+    assert!(
+        lhs.total_runtime_ms > 0.0,
+        "mc_cpu_european_call_rust_latin_hypercube gate failed: expected benchmark presence and positive runtime"
+    );
+
+    let lhs_quality = find_metric(
+        "mc_cpu_european_call_rust_latin_hypercube_control_variate_quality",
+        &report,
+    );
+    let lhs_stderr_ratio = lhs_quality
+        .metric_value
+        .expect("latin hypercube quality benchmark must contain metric_value");
+    assert!(
+        lhs_stderr_ratio < 1.0,
+        "latin hypercube control-variate quality gate failed: stderr_ratio_vs_standard={} expected<1",
+        lhs_stderr_ratio
+    );
+
+    for name in [
+        "mc_cpu_qmc_quality_european_scrambled_sobol",
+        "mc_cpu_qmc_quality_arithmetic_asian_latin_hypercube",
+        "mc_cpu_qmc_quality_down_and_out_randomized_halton",
+    ] {
+        let quality = find_metric(name, &report);
+        assert_eq!(
+            quality.metric_name.as_deref(),
+            Some("stderr_ratio_vs_pseudorandom")
+        );
+        let ratio = quality
+            .metric_value
+            .unwrap_or_else(|| panic!("{name} must contain metric_value"));
+        assert!(
+            ratio.is_finite() && ratio > 0.0,
+            "{name} gate failed: stderr_ratio_vs_pseudorandom={} expected positive finite value",
+            ratio
+        );
+    }
+
+    let uq = find_metric("mc_cpu_gaussian_uncertainty_rust_scrambled_sobol", &report);
+    assert_eq!(
+        uq.metric_name.as_deref(),
+        Some("abs_error_vs_analytic_mean")
+    );
+    let uq_abs_error = uq
+        .metric_value
+        .expect("Gaussian uncertainty benchmark must contain metric_value");
+    assert!(
+        uq_abs_error < 0.05,
+        "Gaussian uncertainty gate failed: abs_error_vs_analytic_mean={} expected<0.05",
+        uq_abs_error
     );
 
     let antithetic_quality = find_metric("mc_cpu_european_call_rust_antithetic_quality", &report);

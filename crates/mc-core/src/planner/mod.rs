@@ -2,6 +2,8 @@ use mc_schema::{Expr, SimulationSpec};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::{MonteCarloTechnique, SamplingMethod};
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlannerMode {
@@ -145,6 +147,33 @@ pub struct ExecutionPlan {
     pub decision_report: BackendDecisionReport,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkloadFamily {
+    EuropeanCall,
+    ArithmeticAsianCall,
+    DownAndOutCall,
+    GenericPathSimulation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MethodRecommendationRequest {
+    pub workload_family: WorkloadFamily,
+    pub n_paths: usize,
+    pub n_steps: usize,
+    pub prefer_accuracy: bool,
+    pub allow_slower_structured_sampling: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MethodRecommendation {
+    pub method_id: String,
+    pub sampling: SamplingMethod,
+    pub technique: MonteCarloTechnique,
+    pub reasons: Vec<String>,
+    pub caveats: Vec<String>,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PlannerError {
     #[error("run config invalid: {0}")]
@@ -265,6 +294,100 @@ pub fn explain_execution_plan(plan: &ExecutionPlan) -> String {
     }
 
     lines.join("\n")
+}
+
+pub fn recommend_method(request: MethodRecommendationRequest) -> MethodRecommendation {
+    let path_dependent = !matches!(request.workload_family, WorkloadFamily::EuropeanCall);
+    let large_enough_for_qmc = request.n_paths >= 32_768 && request.n_steps >= 16;
+    let high_dimension = request.n_steps >= 32;
+
+    if request.prefer_accuracy
+        && path_dependent
+        && request.n_steps >= 16
+        && !request.allow_slower_structured_sampling
+    {
+        return MethodRecommendation {
+            method_id: "multilevel_monte_carlo".to_string(),
+            sampling: SamplingMethod::Pseudorandom,
+            technique: MonteCarloTechnique::Standard,
+            reasons: vec![
+                "path-dependent accuracy preference benefits from a coupled multilevel estimator"
+                    .to_string(),
+                "pseudorandom MLMC is the current CPU-reference advanced path when slower structured sampling is not requested".to_string(),
+            ],
+            caveats: vec![
+                "MLMC CPU support currently covers arithmetic Asian calls; barrier workloads need separate discontinuity handling".to_string(),
+                "use the allocation tuner or explicit arithmetic Asian MLMC config to set paths per level".to_string(),
+            ],
+        };
+    }
+
+    if request.prefer_accuracy
+        && request.allow_slower_structured_sampling
+        && large_enough_for_qmc
+        && matches!(request.workload_family, WorkloadFamily::ArithmeticAsianCall)
+    {
+        return MethodRecommendation {
+            method_id: "multilevel_randomized_qmc".to_string(),
+            sampling: SamplingMethod::ScrambledSobol,
+            technique: MonteCarloTechnique::Standard,
+            reasons: vec![
+                "arithmetic Asian accuracy preference can use coupled MLMC with scrambled Sobol increments".to_string(),
+                "MLQMC combines the first CPU MLMC foundation with the randomized-QMC sampling surface".to_string(),
+            ],
+            caveats: vec![
+                "MLQMC support is CPU-reference only and still needs measured allocation tuning per workload".to_string(),
+                "use scramble_replicates > 1 for defensible randomized-QMC error estimates".to_string(),
+            ],
+        };
+    }
+
+    if request.prefer_accuracy && request.allow_slower_structured_sampling && large_enough_for_qmc {
+        let sampling = if high_dimension || path_dependent {
+            SamplingMethod::ScrambledSobolBrownianBridge
+        } else {
+            SamplingMethod::ScrambledSobol
+        };
+        return MethodRecommendation {
+            method_id: if sampling == SamplingMethod::ScrambledSobolBrownianBridge {
+                "scrambled_sobol_brownian_bridge".to_string()
+            } else {
+                "scrambled_sobol".to_string()
+            },
+            sampling,
+            technique: MonteCarloTechnique::ControlVariate,
+            reasons: vec![
+                "accuracy preference allows slower structured sampling".to_string(),
+                "control variate is the strongest measured variance-reduction technique on current workloads".to_string(),
+                if sampling == SamplingMethod::ScrambledSobolBrownianBridge {
+                    "Brownian bridge concentrates path variance into early Sobol dimensions".to_string()
+                } else {
+                    "scrambled Sobol is preferred over Halton for serious randomized-QMC coverage".to_string()
+                },
+            ],
+            caveats: vec![
+                "structured sampling is currently CPU-reference only and falls back on native GPU backends".to_string(),
+                "recommendation is heuristic until more measured winner scenarios are collected".to_string(),
+            ],
+        };
+    }
+
+    MethodRecommendation {
+        method_id: "control_variates".to_string(),
+        sampling: SamplingMethod::Pseudorandom,
+        technique: MonteCarloTechnique::ControlVariate,
+        reasons: vec![
+            "pseudorandom sampling is the fastest measured CPU and native Metal path today"
+                .to_string(),
+            "control variate gives strong measured stderr reduction with modest runtime overhead"
+                .to_string(),
+        ],
+        caveats: vec![
+            "antithetic may be useful when control-variate assumptions are unavailable".to_string(),
+            "structured sampling can improve estimator quality but is slower in current benchmarks"
+                .to_string(),
+        ],
+    }
 }
 
 fn plan_with_requested_backend(

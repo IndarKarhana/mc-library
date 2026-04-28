@@ -4,126 +4,214 @@ This document captures the current codebase and benchmark reality so the next im
 
 ## Executive Summary
 
-Update: the benchmark-fairness gap has now been addressed for the tracked European-call CPU workload.
+The repository is in a healthier place than before on both performance and breadth, but we still need to keep two truths in view at once:
 
-The repository is in a healthy early state, but it is still stronger in CPU execution and architecture than in full backend breadth.
+- the tracked CPU and Apple Metal results are genuinely strong
+- the library is not yet broad enough to claim general market leadership
 
 Today we have:
 
 - a strong documentation and planning foundation
+- a durable flagship competitiveness plan in `docs/flagship-competitiveness-plan.md`
 - a fast specialized CPU implementation for terminal-distribution pricing
-- a fair step-wise CPU benchmark path that still beats available NumPy and Numba baselines
-- antithetic-variates and control-variates support for the current CPU European-call runtime
-- good benchmark automation and artifact discipline
+- a fair step-wise CPU benchmark path that beats the available NumPy and Numba baselines on the tracked European workload
+- variance-reduction support via antithetic variates and control variates
+- a first sampling abstraction via `SamplingMethod`
+- a first randomized-QMC surface via `RandomizedHalton`
+- deterministic Latin hypercube sampling across the current CPU workload families
+- scrambled Sobol and Brownian-bridge CPU structured sampling
+- a first direct Rust-vs-SciPy QMC generation benchmark lane
+- agent-readable structured-sampling guidance and standard-normal diagnostics
+- arithmetic Asian CPU MLMC/MLQMC with explicit per-level estimator metadata, pilot allocation tuning, tolerance planning, and replicated Sobol scrambling
+- benchmark automation and artifact discipline
 - backend contracts, discovery scaffolding, and explicit fallback execution paths for NVIDIA and Apple
-- a workable no-GPU testing strategy for backend conformance and CI
 - host-side native CUDA and Metal staging gates with kernel-manifest metadata and compile-time validation
-- an actual staged CUDA kernel source plus PTX compile-attempt plumbing behind `cuda-native`
-- shared GPU launch and buffer contracts for staged native kernels
-- an actual staged Metal shader source plus `.air` / `.metallib` compile-attempt plumbing behind `metal-native`
-- a first native Metal execution path on macOS using in-process Rust host integration and cached pipelines
-- benchmark-calibrated planner heuristics that now prefer Apple Metal for the measured medium-large Apple workload band
-- a measured planner-accuracy benchmark against local backend winners on the current machine
-- measured CPU-vs-Metal benchmark data on macOS for the first native Apple GPU path
-- a second native workload family on Metal for arithmetic Asian calls with control-variate support
+- a real native Metal execution path on macOS using in-process Rust host integration and cached pipelines
+- three benchmarked workload families across CPU and Metal:
+  - European call
+  - arithmetic Asian call
+  - down-and-out call
+- a first non-option Gaussian uncertainty-propagation benchmark with an analytic mean
+- measured planner calibration against local backend winners
 
 Today we do not yet have:
 
 - native CUDA kernel execution
-- cross-hardware planner decisions calibrated from measured backend behavior
+- native GPU structured sampling
 - dedicated native GPU hardware CI
+- broad market-leader coverage across more simulation families such as American-style exercise, Greeks, adaptive MLMC, or scientific UQ workflows
 
 ## What Is Working Well
 
-### 1. CPU performance is now strong in both fair and specialized modes
+### 1. CPU performance is strong on the tracked fair workload
 
-- The fair release step-wise benchmark now leads available NumPy and Numba baselines.
-- The specialized terminal-distribution path remains dramatically faster and is now labeled separately.
-- We now support both antithetic variates and control variates on the current CPU workload.
-- The current control-variate implementation is especially strong for European calls because it uses discounted terminal stock as a control with known expectation `S0`.
+The fair release step-wise benchmark remains comfortably ahead of the available Python CPU baselines.
 
-### 2. Planner overhead is already cheap
+Current release results:
 
-Planner latency is sub-microsecond in release benchmarks for the current scenario set, which is a good base for later explainability and richer planning outputs.
+- Rust CPU European step-wise: `11.169 ms`
+- NumPy European step-wise: `89.829 ms`
+- Numba European step-wise: `222.752 ms`
 
-### 3. Repo discipline is stronger than typical early-stage libraries
+That is a real win, not just a specialized fast-path artifact.
 
-The architecture docs, roadmap, benchmark artifacts, and quality rules are unusually solid for this stage. That will help us scale complexity without losing direction.
+### 2. Native Metal is now a meaningful product capability
 
-## What Is Misleading Or Risky
+Native Metal is no longer a narrow demo for one single benchmark case. It now covers three workload families.
 
-### 1. GPU acceleration is real, but still narrow
+Current release results:
 
-The planner and backend layers now execute through explicit delegated CPU fallback semantics, and they now include host-side native staging boundaries for CUDA and Metal. CUDA has a real staged `.cu` kernel source and PTX compile-attempt path. Metal has a real staged `.metal` source, `.air` / `.metallib` compile-attempt path, and an in-process native runtime execution path on macOS with cached pipelines and on-device reductions. CUDA still does not run native kernels on-device yet, and the current Metal path is still narrow in absolute terms, but it now covers two GBM step-wise workload families: European calls and arithmetic Asian calls.
+- Metal European step-wise: `0.934 ms`
+- Metal arithmetic Asian step-wise: `0.860 ms`
+- Metal down-and-out step-wise: `0.721 ms`
 
-Current measured macOS release results for the tracked workloads:
+Relative to our tracked CPU baselines, that makes Apple Metal materially faster on each currently supported native workload family.
 
-- CPU step-wise Rust: about `21.818 ms`
-- native Metal step-wise: about `1.457 ms`
-- native Metal antithetic step-wise: about `1.013 ms`
-- native Metal control-variate step-wise: about `1.439 ms`
-- CPU arithmetic Asian step-wise: about `31.783 ms`
-- native Metal arithmetic Asian step-wise: about `1.751 ms`
-- native Metal arithmetic Asian control-variate step-wise: about `1.520 ms`
+### 3. Breadth is improving in the right direction
 
-So native Metal is now both functionally working and materially faster than the fair CPU baseline on the tracked European and arithmetic-Asian workload families. The honest limitation is still breadth, not this specific speed result: we still have only a narrow GBM option family, no native CUDA execution yet, and no benchmark matrix across larger problem shapes or broader simulation domains.
+We now support:
 
-That means the product now has a genuine Apple GPU acceleration story, but it still is not broad enough yet to claim general GPU leadership across the library.
+- three option workload families
+- variance reduction across those families
+- a first separated sampling abstraction instead of baking sampling and variance reduction together
+- randomized Halton, Latin hypercube, scrambled Sobol, and Brownian-bridge implementation paths
+- the first MLMC and MLQMC CPU reference paths for arithmetic Asian calls
 
-### 2. Planner calibration is only partial so far
+That is a much better foundation for future adaptive tolerance work.
 
-`planner_choice_accuracy` is still measured against a small internal set of expected outcomes. We now also have `planner_choice_accuracy_measured`, which checks the planner against measured local winners on the current machine. The latest measured value is `83.3%`, which is useful progress but still not a full cross-hardware calibration story.
+## What Is Still Risky Or Incomplete
 
-It is useful as a regression and local-calibration check, but it is not yet evidence that the planner is choosing the fastest backend across production conditions or across CUDA hardware.
+### 1. Structured sampling generation is competitive, and pricing overhead is improving
+
+`RandomizedHalton`, `LatinHypercube`, and scrambled Sobol with Brownian bridge are now implemented as breadth and quality milestones. That is useful because it proves the architectural separation between sampling and variance reduction, and it gives us a real platform for future low-discrepancy and uncertainty-propagation work.
+
+The current release artifacts show the structured paths are now much better than the first Halton pass, but still meaningfully slower than the pseudorandom step-wise CPU path:
+
+- Rust CPU European randomized Halton: `79.482 ms`
+- Rust CPU European Latin hypercube: `64.128 ms`
+- Rust CPU European scrambled Sobol: `79.564 ms`
+- Rust CPU European scrambled Sobol Brownian bridge: `100.166 ms`
+- Rust CPU European pseudorandom step-wise: `11.169 ms`
+
+The new generation-only QMC scoreboard shows:
+
+- Rust scrambled Sobol normal generation: `74.457 ms`
+- SciPy scrambled Sobol normal generation: `116.551 ms`
+- Rust randomized Halton normal generation: `55.989 ms`
+- SciPy randomized Halton normal generation: `134.500 ms`
+- Rust Latin hypercube normal generation: `39.251 ms`
+- SciPy Latin hypercube normal generation: `187.319 ms`
+
+The pricing-quality comparison rows now cover European, arithmetic Asian, and down-and-out workloads. The current stderr ratios versus pseudorandom are near neutral rather than clear wins:
+
+- European scrambled Sobol stderr ratio: `1.000`
+- arithmetic Asian Latin hypercube stderr ratio: `1.003`
+- down-and-out randomized Halton stderr ratio: `0.994`
+
+So direct structured-normal generation is now a speed-competitive surface against SciPy QMC on the tracked rows. Moving batched path-level normal filling into pricing cut a large share of the Sobol pricing overhead, but structured pricing still trails the pseudorandom CPU path and needs realized-error studies before it becomes a default speed or convergence recommendation.
+
+### 2. MLMC and MLQMC now have adaptive tolerance planning, but still need broader validation
+
+Current release results:
+
+- Rust CPU arithmetic Asian step-wise: `15.642 ms`
+- Rust CPU arithmetic Asian control-variate: `15.899 ms`
+- Rust CPU arithmetic Asian MLMC: `4.330 ms`
+- Rust CPU arithmetic Asian MLQMC: `5.760 ms`
+- arithmetic Asian MLMC stderr ratio vs step-wise: `2.013`
+- arithmetic Asian MLQMC stderr ratio vs step-wise: `0.418`
+
+That is a useful multilevel foundation with a real speed signal for MLMC and a strong accuracy signal for replicated MLQMC. The new tolerance solver makes timing and estimator error explicit, but it still needs broader calibration before becoming a default recommendation claim.
+
+### 3. Non-option UQ coverage has started, with a strong structured-sampling signal
+
+The Gaussian uncertainty-propagation benchmark is intentionally small and analytic-reference-backed. Current release results:
+
+- Rust Gaussian UQ pseudorandom: `3.226 ms`, abs error `0.006344`
+- Rust Gaussian UQ randomized Halton: `5.589 ms`, abs error `0.000056`
+- Rust Gaussian UQ Latin hypercube: `2.086 ms`, abs error `0.000039`
+- Rust Gaussian UQ scrambled Sobol: `6.948 ms`, abs error `0.000043`
+
+This is the clearest current QMC quality win. It is not an option-pricing workload, and it shows why the runtime should keep separate workload classes rather than judging QMC only by path-dependent option standard errors.
+
+### 4. Metal breadth is still GBM-family breadth, not broad Monte Carlo breadth
+
+The current native Apple path is strong, but it is still within one general family of GBM-style path simulation kernels. We do not yet have native Metal support for a larger cross-section of the real market landscape.
+
+### 5. Planner calibration is improving, but not finished
+
+`planner_choice_accuracy_measured` is now `87.5%` on the current local scenario set. That is a good directional signal and a useful regression metric, but it is still not enough to claim production-grade backend intelligence across hardware and workload classes.
+
+### 6. CUDA remains a major unfilled competitive gap
+
+The CUDA artifact and staging layers are solid, but native execution is still not there. Until CUDA is live, we remain unable to compete honestly against accelerator-first ecosystems on NVIDIA-heavy environments.
+
+### 7. MLMC is real and tolerance-planned, but not yet broad
+
+The arithmetic Asian MLMC path proves the coupled fine/coarse estimator surface and returns the metadata we need for serious tuning. It is still CPU-reference only, supports explicit, pilot-budget, and pilot-tolerance path allocation, and does not yet cover discontinuous barrier payoffs.
 
 ## Priority Order
 
-## Priority 1: Turn fallback GPU runtimes into native GPU runtimes
-
-The next major product leap is native CUDA and Metal execution.
+### Priority 1: Make structured sampling worth using at scale
 
 Immediate goals:
 
-- first CUDA kernel for GBM step update or terminal payoff path
-- first Metal equivalent
-- structured execution telemetry
-- reproducibility notes per backend
+- add realized-error QMC quality studies where analytic references exist
+- continue improving path construction and dimensional mapping
+- benchmark Latin hypercube and Sobol quality across more than the tracked European path
+- optimize Brownian-bridge construction and Sobol dimension mapping
+- keep estimator-quality validation explicit in benchmarks
 
-Why third:
+Why first:
 
-- without native GPU kernels, the library cannot yet win where GPU-native competitors matter most
+- breadth matters, but breadth only really sticks if the added techniques are performant enough to be practical
 
-## Priority 2: Replace heuristic-only planner choices with measured evidence
+### Priority 2: Calibrate MLMC tolerance planning and compare it against structured sampling
 
-Planner heuristics are fine for bootstrap, but they need measured calibration.
+Immediate goals:
+
+- calibrate tolerance defaults against measured realized stderr
+- add benchmark coverage that records estimated vs realized MLMC/MLQMC error
+- compare MLMC against step-wise, control-variate, Sobol, and Sobol Brownian-bridge Asian paths
+- keep barrier MLMC separate until discontinuity behavior is documented
+
+Why second:
+
+- MLMC is one of the highest-value additions for path-dependent simulation, but it should earn a default recommendation through measured efficiency rather than novelty
+
+### Priority 3: Broaden native Metal beyond the current GBM option family
+
+Immediate goals:
+
+- add another workload family that is meaningfully different from the current GBM call set
+- keep fallback behavior truthful for unsupported features
+- preserve the clean shared GPU ABI while broadening kernel support
+
+Why second:
+
+- the current Metal story is good and benchmark-backed, so extending it compounds a real strength
+
+### Priority 4: Keep moving planner choices from heuristics toward evidence
 
 Needed next:
 
-- benchmark families across CPU, CUDA, and Metal
-- record observed winners by workload shape
-- use those observations to tune backend selection and confidence
-- eventually separate “supported” from “recommended” more clearly
-
-## Priority 3: Improve the agent-facing public surface
-
-The repo now has `AGENTS.md`, skills, and a function catalog, which is great.
-
-The next useful agent-facing runtime features are:
-
-- `explain_plan()`-style helper
-- machine-readable run manifest
-- stable tool-ready wrappers for validation, planning, and reference execution
+- add more measured winner scenarios across the new workload families
+- separate support from recommendation more clearly
+- eventually ingest hardware-specific observations once CUDA comes online
 
 ## Concrete Build Sequence
 
-1. Implement the first CUDA kernel path.
-2. Broaden Metal beyond the current GBM option family.
-3. Recalibrate planner heuristics from observed data.
-4. Add agent-facing explain and manifest helpers.
-5. Add scrambled Sobol / randomized quasi-Monte Carlo.
-6. Add MLMC foundations.
+1. Add realized-error QMC quality studies and keep measuring randomized Halton, Latin hypercube, and Sobol variants until the structured sampling story is practical.
+2. Use measured structured-sampling winners to improve method recommendations.
+3. Calibrate adaptive MLMC/MLQMC tolerance planning and document estimator efficiency.
+4. Broaden Metal beyond the current GBM option family.
+5. Keep recalibrating planner heuristics from observed backend winners.
+6. Keep native CUDA launch deferred while CPU, Metal, and multilevel-method quality are the active focus.
 
 ## What We Should Not Do Yet
 
-- present planner accuracy as production-ready backend intelligence
-- over-generalize the public API before the general runtime path exists
+- present full structured-sampling pricing paths as speed-competitive before pricing/path-construction benchmarks support it
+- over-generalize current Metal wins into broad GPU leadership claims
+- present `87.5%` measured planner accuracy as finished planner intelligence
+- present first MLMC support as workload-general
+- claim parity with QuantLib, broad SciPy QMC surface area, or CUDA-first libraries on breadth

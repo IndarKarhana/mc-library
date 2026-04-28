@@ -4,10 +4,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    arithmetic_asian_call_price_mc_cpu, european_call_price_mc_cpu,
+    arithmetic_asian_call_price_mc_cpu, down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, ArithmeticAsianCallConfig, ArithmeticAsianCallResult,
-    BackendDecisionReport, BackendId, EuropeanCallConfig, EuropeanCallResult, ExecutionPlan,
-    PlannerMode, SupportLevel,
+    BackendDecisionReport, BackendId, DownAndOutCallConfig, DownAndOutCallResult,
+    EuropeanCallConfig, EuropeanCallResult, ExecutionPlan, PlannerMode, SamplingMethod,
+    SupportLevel,
 };
 
 mod cuda;
@@ -179,6 +180,7 @@ pub struct RunOutput {
 pub enum BackendExecutionInput {
     EuropeanCall(EuropeanCallConfig),
     ArithmeticAsianCall(ArithmeticAsianCallConfig),
+    DownAndOutCall(DownAndOutCallConfig),
 }
 
 #[derive(Debug, Error)]
@@ -339,6 +341,7 @@ impl RuntimeBackend for CpuNativeBackend {
             BackendExecutionInput::ArithmeticAsianCall(cfg) => {
                 arithmetic_asian_call_price_mc_cpu(cfg)
             }
+            BackendExecutionInput::DownAndOutCall(cfg) => down_and_out_call_price_mc_cpu(cfg),
         };
 
         Ok(RunOutput {
@@ -466,6 +469,9 @@ pub(crate) fn execute_gpu_fallback(
         BackendExecutionInput::ArithmeticAsianCall(cfg) => {
             execute_chunked_cpu_fallback_asian(artifact, cfg)
         }
+        BackendExecutionInput::DownAndOutCall(cfg) => {
+            execute_chunked_cpu_fallback_barrier(artifact, cfg)
+        }
     }?;
 
     Ok(RunOutput {
@@ -481,6 +487,10 @@ fn execute_chunked_cpu_fallback(
 ) -> Result<EuropeanCallResult, BackendError> {
     if cfg.n_paths != artifact.n_paths || cfg.n_steps != artifact.n_steps {
         return Err(BackendError::IncompatibleExecutionInput);
+    }
+
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        return Ok(european_call_price_mc_cpu_stepwise(cfg));
     }
 
     let chunking = plan_gpu_chunking(
@@ -537,6 +547,10 @@ fn execute_chunked_cpu_fallback_asian(
         return Err(BackendError::IncompatibleExecutionInput);
     }
 
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        return Ok(arithmetic_asian_call_price_mc_cpu(cfg));
+    }
+
     let chunking = plan_gpu_chunking(
         artifact.n_paths,
         lookup_device_memory_mb(artifact.backend_id, &artifact.device_id),
@@ -567,6 +581,64 @@ fn execute_chunked_cpu_fallback_asian(
         chunk_cfg.seed = stable_fallback_seed(cfg.seed, chunk_idx as u64);
 
         let chunk_result = arithmetic_asian_call_price_mc_cpu(&chunk_cfg);
+        accumulate_result_as_sums(
+            chunk_paths,
+            chunk_result,
+            &mut payoff_sum,
+            &mut payoff_sq_sum,
+        );
+        remaining_paths -= chunk_paths;
+    }
+
+    Ok(summarize_result_from_sums(
+        artifact.n_paths,
+        payoff_sum,
+        payoff_sq_sum,
+    ))
+}
+
+fn execute_chunked_cpu_fallback_barrier(
+    artifact: &CompiledArtifact,
+    cfg: &DownAndOutCallConfig,
+) -> Result<DownAndOutCallResult, BackendError> {
+    if cfg.n_paths != artifact.n_paths || cfg.n_steps != artifact.n_steps {
+        return Err(BackendError::IncompatibleExecutionInput);
+    }
+
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        return Ok(down_and_out_call_price_mc_cpu(cfg));
+    }
+
+    let chunking = plan_gpu_chunking(
+        artifact.n_paths,
+        lookup_device_memory_mb(artifact.backend_id, &artifact.device_id),
+        GpuChunkingConfig {
+            bytes_per_path: estimate_gpu_bytes_for_artifact(artifact),
+            target_utilization: match artifact.backend_id {
+                BackendId::NvidiaCuda => 0.75,
+                BackendId::AppleMetal => 0.70,
+                BackendId::CpuNative => 0.75,
+            },
+            minimum_paths_per_chunk: 32_768,
+            fallback_budget_mb: match artifact.backend_id {
+                BackendId::NvidiaCuda => 8_192,
+                BackendId::AppleMetal => 6_144,
+                BackendId::CpuNative => 8_192,
+            },
+        },
+    );
+
+    let mut remaining_paths = artifact.n_paths;
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+
+    for chunk_idx in 0..chunking.chunk_count {
+        let chunk_paths = remaining_paths.min(chunking.paths_per_chunk);
+        let mut chunk_cfg = *cfg;
+        chunk_cfg.n_paths = chunk_paths;
+        chunk_cfg.seed = stable_fallback_seed(cfg.seed, chunk_idx as u64);
+
+        let chunk_result = down_and_out_call_price_mc_cpu(&chunk_cfg);
         accumulate_result_as_sums(
             chunk_paths,
             chunk_result,

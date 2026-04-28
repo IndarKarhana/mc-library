@@ -26,7 +26,7 @@ use crate::runtime::cpu::{
     summarize_block_estimates, summarize_control_variate, summarize_payoffs, ControlVariateMoments,
 };
 use crate::MonteCarloTechnique;
-use crate::{ArithmeticAsianCallConfig, SupportLevel};
+use crate::{ArithmeticAsianCallConfig, DownAndOutCallConfig, SamplingMethod, SupportLevel};
 
 pub fn metal_native_feature_enabled() -> bool {
     cfg!(feature = "metal-native")
@@ -47,6 +47,7 @@ const METAL_TECHNIQUE_ANTITHETIC: i32 = 1;
 const METAL_TECHNIQUE_CONTROL_VARIATE: i32 = 2;
 const METAL_PAYOFF_EUROPEAN_CALL: i32 = 0;
 const METAL_PAYOFF_ARITHMETIC_ASIAN_CALL: i32 = 1;
+const METAL_PAYOFF_DOWN_AND_OUT_CALL: i32 = 2;
 
 #[cfg(all(feature = "metal-native", target_os = "macos"))]
 thread_local! {
@@ -69,6 +70,7 @@ struct StepwiseOptionJob {
     seed: u64,
     technique: MonteCarloTechnique,
     payoff_mode: i32,
+    barrier: f64,
 }
 
 impl StepwiseOptionJob {
@@ -84,6 +86,7 @@ impl StepwiseOptionJob {
             seed: cfg.seed,
             technique: cfg.technique,
             payoff_mode: METAL_PAYOFF_EUROPEAN_CALL,
+            barrier: 0.0,
         }
     }
 
@@ -99,6 +102,23 @@ impl StepwiseOptionJob {
             seed: cfg.seed,
             technique: cfg.technique,
             payoff_mode: METAL_PAYOFF_ARITHMETIC_ASIAN_CALL,
+            barrier: 0.0,
+        }
+    }
+
+    fn from_down_and_out(cfg: &DownAndOutCallConfig) -> Self {
+        Self {
+            n_paths: cfg.n_paths,
+            n_steps: cfg.n_steps,
+            s0: cfg.s0,
+            k: cfg.k,
+            r: cfg.r,
+            sigma: cfg.sigma,
+            t: cfg.t,
+            seed: cfg.seed,
+            technique: cfg.technique,
+            payoff_mode: METAL_PAYOFF_DOWN_AND_OUT_CALL,
+            barrier: cfg.barrier,
         }
     }
 }
@@ -159,7 +179,7 @@ impl RuntimeBackend for AppleMetalBackend {
         }
 
         let mut warnings = vec![
-            "Apple Metal backend now has a narrow native v1 path for European-call and arithmetic-Asian-call stepwise execution"
+            "Apple Metal backend now has a narrow native v1 path for European-call, arithmetic-Asian-call, and down-and-out-call stepwise execution"
                 .to_string(),
         ];
         let mut unsupported_features = Vec::new();
@@ -176,6 +196,10 @@ impl RuntimeBackend for AppleMetalBackend {
             if cfg!(target_os = "macos") {
                 warnings.push(
                     "metal-native feature enabled; execution uses in-process Metal runtime with cached pipelines and on-device reductions on macOS"
+                        .to_string(),
+                );
+                warnings.push(
+                    "native Metal currently uses pseudorandom sampling only; structured-sampling requests still execute via truthful CPU fallback"
                         .to_string(),
                 );
             } else {
@@ -418,6 +442,11 @@ fn first_metal_kernel_contract(plan: &ExecutionPlan) -> GpuKernelContract {
                 name: "payoff_mode".to_string(),
                 value_type: GpuValueType::Int32,
             },
+            GpuScalarBinding {
+                binding_index: 15,
+                name: "barrier".to_string(),
+                value_type: GpuValueType::Float32,
+            },
         ],
         launch: GpuLaunchDimensions {
             logical_threads: plan.n_paths,
@@ -441,7 +470,7 @@ fn metal_kernel_notes(
     compile_status: &MetalKernelStageStatus,
 ) -> Vec<String> {
     let mut notes = vec![
-        "native Metal v1 runtime is available for the staged European-call and arithmetic-Asian-call GBM stepwise workloads; other shapes still fall back"
+        "native Metal v1 runtime is available for the staged European-call, arithmetic-Asian-call, and down-and-out-call GBM stepwise workloads; other shapes still fall back"
             .to_string(),
         "native execution caches the Metal device, command queue, and compute pipeline state inside the Rust process"
             .to_string(),
@@ -558,6 +587,12 @@ fn execute_native_metal_if_possible(
             if cfg.n_paths != artifact.n_paths || cfg.n_steps != artifact.n_steps {
                 return Err(BackendError::IncompatibleExecutionInput);
             }
+            if cfg.sampling != SamplingMethod::Pseudorandom {
+                return Err(BackendError::UnsupportedFeature(
+                    "native Metal execution currently supports pseudorandom sampling only"
+                        .to_string(),
+                ));
+            }
             execute_metal_stepwise_kernel(
                 &StepwiseOptionJob::from_european(cfg),
                 compiled_module_path,
@@ -567,8 +602,29 @@ fn execute_native_metal_if_possible(
             if cfg.n_paths != artifact.n_paths || cfg.n_steps != artifact.n_steps {
                 return Err(BackendError::IncompatibleExecutionInput);
             }
+            if cfg.sampling != SamplingMethod::Pseudorandom {
+                return Err(BackendError::UnsupportedFeature(
+                    "native Metal execution currently supports pseudorandom sampling only"
+                        .to_string(),
+                ));
+            }
             execute_metal_stepwise_kernel(
                 &StepwiseOptionJob::from_arithmetic_asian(cfg),
+                compiled_module_path,
+            )?
+        }
+        BackendExecutionInput::DownAndOutCall(cfg) => {
+            if cfg.n_paths != artifact.n_paths || cfg.n_steps != artifact.n_steps {
+                return Err(BackendError::IncompatibleExecutionInput);
+            }
+            if cfg.sampling != SamplingMethod::Pseudorandom {
+                return Err(BackendError::UnsupportedFeature(
+                    "native Metal execution currently supports pseudorandom sampling only"
+                        .to_string(),
+                ));
+            }
+            execute_metal_stepwise_kernel(
+                &StepwiseOptionJob::from_down_and_out(cfg),
                 compiled_module_path,
             )?
         }
@@ -946,6 +1002,7 @@ fn encode_pricing_pass(
     let seed = job.seed as u32;
     let technique_mode = technique_mode(job.technique);
     let payoff_mode = job.payoff_mode;
+    let barrier = job.barrier as f32;
 
     set_scalar_bytes(encoder, 5, &n_paths);
     set_scalar_bytes(encoder, 6, &n_steps);
@@ -957,6 +1014,7 @@ fn encode_pricing_pass(
     set_scalar_bytes(encoder, 12, &seed);
     set_scalar_bytes(encoder, 13, &technique_mode);
     set_scalar_bytes(encoder, 14, &payoff_mode);
+    set_scalar_bytes(encoder, 15, &barrier);
 
     let threads_per_group = MTLSize {
         width: METAL_THREADGROUP_WIDTH as u64,

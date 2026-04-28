@@ -1,8 +1,17 @@
 use mc_core::{
-    arithmetic_asian_call_price_mc_cpu, european_call_price_mc_cpu,
+    arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
+    compare_arithmetic_asian_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    compare_european_call_sampling_quality_cpu, diagnose_standard_normals_cpu,
+    down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
-    ArithmeticAsianCallConfig, ArithmeticAsianCallPricer, EuropeanCallConfig, EuropeanCallMethod,
-    EuropeanCallPricer, MonteCarloRng, MonteCarloTechnique,
+    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, monte_carlo_method_capabilities,
+    solve_arithmetic_asian_mlmc_tolerance_cpu, structured_sampling_guidance_cpu,
+    tune_arithmetic_asian_mlmc_allocation_cpu, ArithmeticAsianCallConfig,
+    ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcPricer,
+    ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport, DownAndOutCallConfig,
+    DownAndOutCallPricer, EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer,
+    GaussianUncertaintyConfig, MonteCarloRng, MonteCarloTechnique, PricingWorkloadFamily,
+    SamplingMethod,
 };
 
 #[test]
@@ -138,6 +147,121 @@ fn european_call_control_variate_stepwise_is_deterministic_for_same_seed() {
 }
 
 #[test]
+fn structured_normal_generation_is_deterministic_and_sane() {
+    let samples_a = generate_standard_normals_cpu(SamplingMethod::ScrambledSobol, 512, 4, 99);
+    let samples_b = generate_standard_normals_cpu(SamplingMethod::ScrambledSobol, 512, 4, 99);
+    let odd_dimensions = generate_standard_normals_cpu(SamplingMethod::ScrambledSobol, 17, 5, 99);
+    let halton = generate_standard_normals_cpu(SamplingMethod::RandomizedHalton, 512, 4, 99);
+    let lhs = generate_standard_normals_cpu(SamplingMethod::LatinHypercube, 512, 4, 99);
+
+    assert_eq!(samples_a, samples_b);
+    assert_eq!(samples_a.len(), 2_048);
+    assert_eq!(odd_dimensions.len(), 85);
+    assert_eq!(halton.len(), 2_048);
+    assert_eq!(lhs.len(), 2_048);
+    assert!(samples_a.iter().all(|value| value.is_finite()));
+    assert!(odd_dimensions.iter().all(|value| value.is_finite()));
+    assert!(halton.iter().all(|value| value.is_finite()));
+    assert!(lhs.iter().all(|value| value.is_finite()));
+
+    let mean = samples_a.iter().sum::<f64>() / samples_a.len() as f64;
+    assert!(mean.abs() < 0.2);
+}
+
+#[test]
+fn structured_sampling_guidance_flags_sobol_balance() {
+    let guidance = structured_sampling_guidance_cpu(SamplingMethod::ScrambledSobol, 1_000, 8);
+
+    assert_eq!(guidance.recommended_points, 1_024);
+    assert!(!guidance.is_power_of_two);
+    assert!(guidance
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("powers of two")));
+}
+
+#[test]
+fn standard_normal_diagnostics_report_distribution_quality() {
+    let diagnostics = diagnose_standard_normals_cpu(SamplingMethod::LatinHypercube, 1_024, 4, 7);
+
+    assert_eq!(diagnostics.sample_count, 4_096);
+    assert_eq!(diagnostics.dimensions, 4);
+    assert!(diagnostics.finite);
+    assert!(diagnostics.mean_abs < 0.05);
+    assert!(diagnostics.variance_abs_error < 0.1);
+    assert!(diagnostics.max_axis_mean_abs < 0.05);
+    assert!(diagnostics.tail_2sigma_abs_error < 0.02);
+}
+
+#[test]
+fn pricing_quality_comparison_reports_structured_sampling_health() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 8_192,
+        n_steps: 32,
+        seed: 91,
+        ..EuropeanCallConfig::default()
+    };
+
+    let comparison =
+        compare_european_call_sampling_quality_cpu(&cfg, SamplingMethod::ScrambledSobol);
+
+    assert_eq!(comparison.workload, PricingWorkloadFamily::EuropeanCall);
+    assert_eq!(comparison.sampling, SamplingMethod::ScrambledSobol);
+    assert_eq!(comparison.paths, cfg.n_paths);
+    assert_eq!(comparison.steps, cfg.n_steps);
+    assert!(comparison.pseudorandom_stderr > 0.0);
+    assert!(comparison.structured_stderr > 0.0);
+    assert!(comparison.stderr_ratio_vs_pseudorandom > 0.0);
+    assert!(comparison.price_delta_stderr_units.is_finite());
+    assert!(comparison.normal_diagnostics.finite);
+    assert!(comparison.guidance.is_power_of_two);
+}
+
+#[test]
+fn pricing_quality_comparison_covers_path_dependent_workloads() {
+    let asian_cfg = ArithmeticAsianCallConfig {
+        n_paths: 8_192,
+        n_steps: 32,
+        seed: 92,
+        ..ArithmeticAsianCallConfig::default()
+    };
+    let barrier_cfg = DownAndOutCallConfig {
+        n_paths: 8_192,
+        n_steps: 32,
+        seed: 93,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let asian =
+        compare_arithmetic_asian_sampling_quality_cpu(&asian_cfg, SamplingMethod::LatinHypercube);
+    let barrier =
+        compare_down_and_out_sampling_quality_cpu(&barrier_cfg, SamplingMethod::RandomizedHalton);
+
+    assert_eq!(asian.workload, PricingWorkloadFamily::ArithmeticAsianCall);
+    assert_eq!(barrier.workload, PricingWorkloadFamily::DownAndOutCall);
+    assert!(asian.stderr_ratio_vs_pseudorandom > 0.0);
+    assert!(barrier.stderr_ratio_vs_pseudorandom > 0.0);
+    assert!(asian.price_delta_abs.is_finite());
+    assert!(barrier.price_delta_abs.is_finite());
+}
+
+#[test]
+fn gaussian_uncertainty_mean_matches_analytic_reference() {
+    let cfg = GaussianUncertaintyConfig {
+        n_samples: 65_536,
+        dimensions: 3,
+        seed: 94,
+        sampling: SamplingMethod::ScrambledSobol,
+    };
+
+    let result = gaussian_uncertainty_mean_cpu(&cfg);
+
+    assert!(result.stderr >= 0.0);
+    assert!(result.abs_error < 0.02);
+    assert!((result.analytic_mean - (1.0 + 0.005f64.exp())).abs() < 1e-12);
+}
+
+#[test]
 fn european_call_mc_outputs_sane_values() {
     let cfg = EuropeanCallConfig {
         n_paths: 30_000,
@@ -199,6 +323,186 @@ fn arithmetic_asian_call_outputs_sane_values() {
 }
 
 #[test]
+fn arithmetic_asian_mlmc_is_deterministic_for_same_seed() {
+    let cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 3,
+        paths_per_level: vec![8_000, 4_000, 2_000],
+        seed: 909,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+
+    let r1 = arithmetic_asian_call_price_mlmc_cpu(&cfg);
+    let r2 = arithmetic_asian_call_price_mlmc_cpu(&cfg);
+
+    assert_eq!(r1, r2);
+    assert_eq!(r1.levels.len(), 3);
+    assert_eq!(r1.total_paths, 14_000);
+    assert!(r1.total_step_updates > 0);
+}
+
+#[test]
+fn arithmetic_asian_mlmc_outputs_sane_level_metadata() {
+    let cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 4,
+        refinement_factor: 2,
+        paths_per_level: vec![16_000, 8_000, 4_000, 2_000],
+        seed: 910,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+
+    let result = arithmetic_asian_call_price_mlmc_cpu(&cfg);
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+    assert!(result.price < cfg.s0 * 2.0);
+    assert_eq!(result.levels.len(), cfg.levels);
+    assert_eq!(result.levels[0].coarse_steps, None);
+    assert_eq!(result.levels[0].fine_steps, cfg.base_steps);
+    assert_eq!(result.levels[1].coarse_steps, Some(cfg.base_steps));
+    assert_eq!(
+        result.levels[1].fine_steps,
+        cfg.base_steps * cfg.refinement_factor
+    );
+    assert!(result.levels.iter().all(|level| level.paths > 0));
+    assert!(result.levels.iter().all(|level| level.variance >= 0.0));
+}
+
+#[test]
+fn arithmetic_asian_mlmc_pricer_builder_supports_expressive_configuration() {
+    let result = ArithmeticAsianMlmcPricer::new()
+        .s0(100.0)
+        .strike(100.0)
+        .rate(0.03)
+        .volatility(0.2)
+        .maturity(1.0)
+        .base_steps(8)
+        .levels(3)
+        .refinement_factor(2)
+        .paths_per_level(vec![8_000, 4_000, 2_000])
+        .seed(911)
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+    assert_eq!(result.levels.len(), 3);
+}
+
+#[test]
+fn arithmetic_asian_mlqmc_scrambled_sobol_is_deterministic_for_same_seed() {
+    let cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 3,
+        paths_per_level: vec![8_192, 4_096, 2_048],
+        seed: 912,
+        sampling: SamplingMethod::ScrambledSobol,
+        scramble_replicates: 4,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+
+    let r1 = arithmetic_asian_call_price_mlmc_cpu(&cfg);
+    let r2 = arithmetic_asian_call_price_mlmc_cpu(&cfg);
+
+    assert_eq!(r1, r2);
+    assert_eq!(r1.scramble_replicates, 4);
+    assert_eq!(r1.replicate_estimates.len(), 4);
+    assert_eq!(
+        r1.total_paths,
+        cfg.paths_per_level.iter().sum::<usize>() * cfg.scramble_replicates
+    );
+    assert!(r1.price >= 0.0);
+    assert!(r1.stderr >= 0.0);
+}
+
+#[test]
+fn arithmetic_asian_mlmc_allocation_tuner_returns_positive_paths() {
+    let cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 4,
+        paths_per_level: vec![4_000, 2_000, 1_000, 500],
+        seed: 913,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+
+    let plan = tune_arithmetic_asian_mlmc_allocation_cpu(&cfg, 500_000, 512);
+
+    assert_eq!(plan.paths_per_level.len(), cfg.levels);
+    assert_eq!(plan.levels.len(), cfg.levels);
+    assert!(plan.estimated_step_updates > 0);
+    assert!(plan.paths_per_level.iter().all(|paths| *paths >= 2));
+    assert!(plan
+        .levels
+        .iter()
+        .all(|level| level.pilot_variance >= 0.0 && level.cost_per_path > 0));
+}
+
+#[test]
+fn arithmetic_asian_mlmc_tolerance_solver_returns_executable_plan() {
+    let cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 4,
+        paths_per_level: vec![2_000, 1_000, 500, 250],
+        seed: 914,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+    let tolerance = ArithmeticAsianMlmcToleranceConfig {
+        target_stderr: 0.08,
+        pilot_paths_per_level: 512,
+        min_step_updates: 50_000,
+        max_step_updates: 2_000_000,
+    };
+
+    let plan = solve_arithmetic_asian_mlmc_tolerance_cpu(&cfg, &tolerance);
+    let result = arithmetic_asian_call_price_mlmc_cpu(&plan.recommended_config);
+
+    assert_eq!(
+        plan.paths_per_level,
+        plan.recommended_config.paths_per_level
+    );
+    assert_eq!(plan.allocation.paths_per_level, plan.paths_per_level);
+    assert_eq!(
+        plan.recommended_config.scramble_replicates,
+        cfg.scramble_replicates
+    );
+    assert!(plan.estimated_stderr > 0.0);
+    assert!(plan.estimated_step_updates >= tolerance.min_step_updates);
+    assert!(plan.estimated_step_updates <= tolerance.max_step_updates);
+    assert!(plan.target_met);
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn arithmetic_asian_mlqmc_tolerance_solver_accounts_for_replicates() {
+    let cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 3,
+        paths_per_level: vec![1_024, 512, 256],
+        seed: 915,
+        sampling: SamplingMethod::ScrambledSobol,
+        scramble_replicates: 4,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+    let tolerance = ArithmeticAsianMlmcToleranceConfig {
+        target_stderr: 0.05,
+        pilot_paths_per_level: 256,
+        min_step_updates: 40_000,
+        max_step_updates: 1_500_000,
+    };
+
+    let plan = solve_arithmetic_asian_mlmc_tolerance_cpu(&cfg, &tolerance);
+    let result = arithmetic_asian_call_price_mlmc_cpu(&plan.recommended_config);
+
+    assert_eq!(plan.scramble_replicates, 4);
+    assert_eq!(plan.recommended_config.scramble_replicates, 4);
+    assert_eq!(result.replicate_estimates.len(), 4);
+    assert_eq!(result.total_step_updates, plan.estimated_step_updates);
+    assert!(plan.estimated_stderr <= tolerance.target_stderr);
+    assert!(plan.target_met);
+}
+
+#[test]
 fn european_call_stepwise_is_close_to_black_scholes_price() {
     let cfg = EuropeanCallConfig {
         s0: 100.0,
@@ -211,6 +515,7 @@ fn european_call_stepwise_is_close_to_black_scholes_price() {
         seed: 2027,
         n_threads: 4,
         technique: MonteCarloTechnique::Standard,
+        sampling: SamplingMethod::Pseudorandom,
     };
 
     let mc = european_call_price_mc_cpu_stepwise(&cfg);
@@ -314,6 +619,7 @@ fn european_call_mc_is_close_to_black_scholes_price() {
         seed: 2026,
         n_threads: 4,
         technique: MonteCarloTechnique::Standard,
+        sampling: SamplingMethod::Pseudorandom,
     };
 
     let mc = european_call_price_mc_cpu(&cfg);
@@ -406,6 +712,337 @@ fn control_variate_stepwise_reduces_standard_error() {
     let control = european_call_price_mc_cpu_stepwise(&control_cfg);
 
     assert!(control.stderr < standard.stderr);
+}
+
+#[test]
+fn randomized_halton_stepwise_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 904,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_stepwise(&cfg);
+    let r2 = european_call_price_mc_cpu_stepwise(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn latin_hypercube_stepwise_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 914,
+        sampling: SamplingMethod::LatinHypercube,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_stepwise(&cfg);
+    let r2 = european_call_price_mc_cpu_stepwise(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn scrambled_sobol_stepwise_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 924,
+        sampling: SamplingMethod::ScrambledSobol,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_stepwise(&cfg);
+    let r2 = european_call_price_mc_cpu_stepwise(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn scrambled_sobol_brownian_bridge_is_deterministic_for_same_seed() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 925,
+        sampling: SamplingMethod::ScrambledSobolBrownianBridge,
+        ..EuropeanCallConfig::default()
+    };
+
+    let r1 = european_call_price_mc_cpu_stepwise(&cfg);
+    let r2 = european_call_price_mc_cpu_stepwise(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn randomized_halton_control_variate_reduces_standard_error_for_european_call() {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: 65_536,
+        n_steps: 32,
+        seed: 905,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+
+    assert!(control.stderr < standard.stderr);
+}
+
+#[test]
+fn latin_hypercube_control_variate_reduces_standard_error_for_european_call() {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: 65_536,
+        n_steps: 32,
+        seed: 915,
+        sampling: SamplingMethod::LatinHypercube,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+
+    assert!(control.stderr < standard.stderr);
+}
+
+#[test]
+fn scrambled_sobol_control_variate_reduces_standard_error_for_european_call() {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: 65_536,
+        n_steps: 32,
+        seed: 926,
+        sampling: SamplingMethod::ScrambledSobol,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+
+    assert!(control.stderr < standard.stderr);
+}
+
+#[test]
+fn scrambled_sobol_brownian_bridge_control_variate_reduces_standard_error_for_european_call() {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: 65_536,
+        n_steps: 32,
+        seed: 927,
+        sampling: SamplingMethod::ScrambledSobolBrownianBridge,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+
+    assert!(control.stderr < standard.stderr);
+}
+
+#[test]
+fn arithmetic_asian_randomized_halton_is_deterministic_for_same_seed() {
+    let cfg = ArithmeticAsianCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 906,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..ArithmeticAsianCallConfig::default()
+    };
+
+    let r1 = arithmetic_asian_call_price_mc_cpu(&cfg);
+    let r2 = arithmetic_asian_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn arithmetic_asian_latin_hypercube_is_deterministic_for_same_seed() {
+    let cfg = ArithmeticAsianCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 916,
+        sampling: SamplingMethod::LatinHypercube,
+        ..ArithmeticAsianCallConfig::default()
+    };
+
+    let r1 = arithmetic_asian_call_price_mc_cpu(&cfg);
+    let r2 = arithmetic_asian_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn arithmetic_asian_scrambled_sobol_brownian_bridge_is_deterministic_for_same_seed() {
+    let cfg = ArithmeticAsianCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 928,
+        sampling: SamplingMethod::ScrambledSobolBrownianBridge,
+        ..ArithmeticAsianCallConfig::default()
+    };
+
+    let r1 = arithmetic_asian_call_price_mc_cpu(&cfg);
+    let r2 = arithmetic_asian_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn down_and_out_call_is_deterministic_for_same_seed() {
+    let cfg = DownAndOutCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 907,
+        n_threads: 4,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let r1 = down_and_out_call_price_mc_cpu(&cfg);
+    let r2 = down_and_out_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn down_and_out_call_randomized_halton_is_deterministic_for_same_seed() {
+    let cfg = DownAndOutCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 908,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let r1 = down_and_out_call_price_mc_cpu(&cfg);
+    let r2 = down_and_out_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn down_and_out_call_latin_hypercube_is_deterministic_for_same_seed() {
+    let cfg = DownAndOutCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 918,
+        sampling: SamplingMethod::LatinHypercube,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let r1 = down_and_out_call_price_mc_cpu(&cfg);
+    let r2 = down_and_out_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn down_and_out_call_scrambled_sobol_brownian_bridge_is_deterministic_for_same_seed() {
+    let cfg = DownAndOutCallConfig {
+        n_paths: 40_000,
+        n_steps: 32,
+        seed: 929,
+        sampling: SamplingMethod::ScrambledSobolBrownianBridge,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let r1 = down_and_out_call_price_mc_cpu(&cfg);
+    let r2 = down_and_out_call_price_mc_cpu(&cfg);
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn down_and_out_call_outputs_sane_values() {
+    let cfg = DownAndOutCallConfig {
+        n_paths: 30_000,
+        n_steps: 64,
+        seed: 909,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let result = down_and_out_call_price_mc_cpu(&cfg);
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+    assert!(result.price < cfg.s0 * 2.0);
+}
+
+#[test]
+fn down_and_out_pricer_builder_supports_expressive_configuration() {
+    let result = DownAndOutCallPricer::new()
+        .s0(100.0)
+        .strike(100.0)
+        .barrier(80.0)
+        .rate(0.03)
+        .volatility(0.2)
+        .maturity(1.0)
+        .paths(50_000)
+        .steps(64)
+        .seed(910)
+        .control_variate()
+        .latin_hypercube()
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn method_capability_catalog_exposes_supported_and_planned_methods() {
+    let capabilities = monte_carlo_method_capabilities();
+
+    let latin = capabilities
+        .iter()
+        .find(|capability| capability.method_id == "latin_hypercube")
+        .expect("latin hypercube should be listed");
+    assert_eq!(latin.cpu_native, BackendMethodSupport::CpuReference);
+    assert_eq!(
+        latin.apple_metal,
+        BackendMethodSupport::DelegatedCpuFallback
+    );
+
+    let sobol = capabilities
+        .iter()
+        .find(|capability| capability.method_id == "scrambled_sobol")
+        .expect("scrambled Sobol should be listed");
+    assert_eq!(sobol.cpu_native, BackendMethodSupport::CpuReference);
+    assert_eq!(
+        sobol.apple_metal,
+        BackendMethodSupport::DelegatedCpuFallback
+    );
+    assert_eq!(
+        sobol.nvidia_cuda,
+        BackendMethodSupport::DelegatedCpuFallback
+    );
+
+    let bridge = capabilities
+        .iter()
+        .find(|capability| capability.method_id == "scrambled_sobol_brownian_bridge")
+        .expect("scrambled Sobol Brownian bridge should be listed");
+    assert_eq!(bridge.cpu_native, BackendMethodSupport::CpuReference);
+
+    let mlmc = capabilities
+        .iter()
+        .find(|capability| capability.method_id == "multilevel_monte_carlo")
+        .expect("MLMC should be listed");
+    assert_eq!(mlmc.cpu_native, BackendMethodSupport::CpuReference);
+    assert!(mlmc
+        .notes
+        .iter()
+        .any(|note| note.contains("arithmetic Asian")));
+
+    let mlqmc = capabilities
+        .iter()
+        .find(|capability| capability.method_id == "multilevel_randomized_qmc")
+        .expect("MLQMC should be listed");
+    assert_eq!(mlqmc.cpu_native, BackendMethodSupport::CpuReference);
 }
 
 fn black_scholes_call(s0: f64, k: f64, r: f64, sigma: f64, t: f64) -> f64 {

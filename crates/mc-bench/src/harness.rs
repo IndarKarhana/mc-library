@@ -3,10 +3,15 @@ use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mc_core::{
-    arithmetic_asian_call_price_mc_cpu, european_call_price_mc_cpu_stepwise,
-    european_call_price_mc_cpu_terminal, plan_execution, ArithmeticAsianCallConfig, BackendId,
-    BackendPreference, BackendSupportReport, EuropeanCallConfig, MonteCarloTechnique, PlannerMode,
-    RunConfig,
+    arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
+    compare_arithmetic_asian_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    compare_european_call_sampling_quality_cpu, down_and_out_call_price_mc_cpu,
+    european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
+    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, plan_execution,
+    solve_arithmetic_asian_mlmc_tolerance_cpu, ArithmeticAsianCallConfig,
+    ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcToleranceConfig, BackendId, BackendPreference,
+    BackendSupportReport, DownAndOutCallConfig, EuropeanCallConfig, GaussianUncertaintyConfig,
+    MonteCarloTechnique, PlannerMode, RunConfig, SamplingMethod,
 };
 #[cfg(feature = "metal-native")]
 use mc_core::{
@@ -24,8 +29,36 @@ use crate::result::{BenchmarkReport, BenchmarkResult};
 const MC_PATHS: usize = 100_000;
 const MC_STEPS: usize = 64;
 const MC_REPEATS: usize = 3;
+const QMC_GENERATION_POINTS: usize = 100_000;
+const QMC_GENERATION_DIMENSIONS: usize = 64;
+const ASIAN_MLMC_MIN_STEP_UPDATES: usize = 100_000;
+const ASIAN_MLMC_MAX_STEP_UPDATES: usize = 2_000_000;
+const ASIAN_MLMC_PILOT_PATHS: usize = 2_048;
+const ASIAN_MLMC_TARGET_STDERR: f64 = 0.05;
+const ASIAN_MLQMC_REPLICATES: usize = 4;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BenchmarkSuite {
+    Full,
+    Compact,
+}
 
 pub fn run_default_benchmarks() -> BenchmarkReport {
+    run_benchmarks(BenchmarkSuite::Full)
+}
+
+pub fn run_compact_benchmarks() -> BenchmarkReport {
+    run_benchmarks(BenchmarkSuite::Compact)
+}
+
+pub fn run_benchmarks(suite: BenchmarkSuite) -> BenchmarkReport {
+    match suite {
+        BenchmarkSuite::Full => run_full_benchmarks(),
+        BenchmarkSuite::Compact => run_compact_benchmarks_inner(),
+    }
+}
+
+fn run_full_benchmarks() -> BenchmarkReport {
     let spec = sample_spec(false);
 
     let mut results = vec![
@@ -46,6 +79,197 @@ pub fn run_default_benchmarks() -> BenchmarkReport {
         benchmark_mc_rust_cpu_arithmetic_asian_stepwise(MC_REPEATS),
         benchmark_mc_rust_cpu_arithmetic_asian_stepwise_control_variate(MC_REPEATS),
         benchmark_mc_rust_cpu_arithmetic_asian_stepwise_control_variate_quality(),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlmc(MC_REPEATS),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlmc_quality(),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlqmc(MC_REPEATS),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlqmc_quality(),
+        benchmark_mc_rust_cpu_european_call_randomized_halton(MC_REPEATS),
+        benchmark_mc_rust_cpu_european_call_randomized_halton_control_variate_quality(),
+        benchmark_mc_rust_cpu_european_call_latin_hypercube(MC_REPEATS),
+        benchmark_mc_rust_cpu_european_call_latin_hypercube_control_variate_quality(),
+        benchmark_mc_rust_cpu_european_structured(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_european_call_rust_scrambled_sobol",
+            "stepwise_paths_scrambled_sobol",
+        ),
+        benchmark_mc_rust_cpu_european_structured_control_variate_quality(
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_european_call_rust_scrambled_sobol_control_variate_quality",
+            "stepwise_paths_scrambled_sobol_control_variate",
+        ),
+        benchmark_mc_rust_cpu_european_structured(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_european_call_rust_scrambled_sobol_brownian_bridge",
+            "stepwise_paths_scrambled_sobol_brownian_bridge",
+        ),
+        benchmark_mc_rust_cpu_european_structured_control_variate_quality(
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_european_call_rust_scrambled_sobol_brownian_bridge_control_variate_quality",
+            "stepwise_paths_scrambled_sobol_brownian_bridge_control_variate",
+        ),
+        benchmark_mc_rust_cpu_european_pricing_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_qmc_quality_european_randomized_halton",
+            "pricing_quality_european_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_european_pricing_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_quality_european_latin_hypercube",
+            "pricing_quality_european_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_european_pricing_quality(
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_qmc_quality_european_scrambled_sobol",
+            "pricing_quality_european_scrambled_sobol",
+        ),
+        benchmark_mc_rust_cpu_european_pricing_quality(
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_qmc_quality_european_scrambled_sobol_brownian_bridge",
+            "pricing_quality_european_scrambled_sobol_brownian_bridge",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_stepwise(MC_REPEATS),
+        benchmark_mc_rust_cpu_down_and_out_stepwise_control_variate(MC_REPEATS),
+        benchmark_mc_rust_cpu_down_and_out_stepwise_control_variate_quality(),
+        benchmark_mc_rust_cpu_asian_structured(
+            MC_REPEATS,
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_arithmetic_asian_call_rust_randomized_halton",
+            "arithmetic_asian_stepwise_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_asian_structured_control_variate_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_arithmetic_asian_call_rust_randomized_halton_control_variate_quality",
+            "arithmetic_asian_stepwise_randomized_halton_control_variate",
+        ),
+        benchmark_mc_rust_cpu_asian_structured(
+            MC_REPEATS,
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_arithmetic_asian_call_rust_latin_hypercube",
+            "arithmetic_asian_stepwise_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_asian_structured_control_variate_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_arithmetic_asian_call_rust_latin_hypercube_control_variate_quality",
+            "arithmetic_asian_stepwise_latin_hypercube_control_variate",
+        ),
+        benchmark_mc_rust_cpu_asian_structured(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_arithmetic_asian_call_rust_scrambled_sobol_brownian_bridge",
+            "arithmetic_asian_stepwise_scrambled_sobol_brownian_bridge",
+        ),
+        benchmark_mc_rust_cpu_asian_structured_control_variate_quality(
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_arithmetic_asian_call_rust_scrambled_sobol_brownian_bridge_control_variate_quality",
+            "arithmetic_asian_stepwise_scrambled_sobol_brownian_bridge_control_variate",
+        ),
+        benchmark_mc_rust_cpu_asian_pricing_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_qmc_quality_arithmetic_asian_randomized_halton",
+            "pricing_quality_arithmetic_asian_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_asian_pricing_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_quality_arithmetic_asian_latin_hypercube",
+            "pricing_quality_arithmetic_asian_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_asian_pricing_quality(
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_qmc_quality_arithmetic_asian_scrambled_sobol_brownian_bridge",
+            "pricing_quality_arithmetic_asian_scrambled_sobol_brownian_bridge",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_structured(
+            MC_REPEATS,
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_down_and_out_call_rust_randomized_halton",
+            "down_and_out_stepwise_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_structured_control_variate_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_down_and_out_call_rust_randomized_halton_control_variate_quality",
+            "down_and_out_stepwise_randomized_halton_control_variate",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_structured(
+            MC_REPEATS,
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_down_and_out_call_rust_latin_hypercube",
+            "down_and_out_stepwise_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_structured_control_variate_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_down_and_out_call_rust_latin_hypercube_control_variate_quality",
+            "down_and_out_stepwise_latin_hypercube_control_variate",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_structured(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_down_and_out_call_rust_scrambled_sobol_brownian_bridge",
+            "down_and_out_stepwise_scrambled_sobol_brownian_bridge",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_structured_control_variate_quality(
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_down_and_out_call_rust_scrambled_sobol_brownian_bridge_control_variate_quality",
+            "down_and_out_stepwise_scrambled_sobol_brownian_bridge_control_variate",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_pricing_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_qmc_quality_down_and_out_randomized_halton",
+            "pricing_quality_down_and_out_randomized_halton",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_pricing_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_quality_down_and_out_latin_hypercube",
+            "pricing_quality_down_and_out_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_pricing_quality(
+            SamplingMethod::ScrambledSobolBrownianBridge,
+            "mc_cpu_qmc_quality_down_and_out_scrambled_sobol_brownian_bridge",
+            "pricing_quality_down_and_out_scrambled_sobol_brownian_bridge",
+        ),
+        benchmark_mc_rust_qmc_generation(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_qmc_rust_scrambled_sobol_generation",
+            "standard_normal_generation_scrambled_sobol",
+        ),
+        benchmark_mc_rust_qmc_generation(
+            MC_REPEATS,
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_qmc_rust_randomized_halton_generation",
+            "standard_normal_generation_randomized_halton",
+        ),
+        benchmark_mc_rust_qmc_generation(
+            MC_REPEATS,
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_rust_latin_hypercube_generation",
+            "standard_normal_generation_latin_hypercube",
+        ),
+        benchmark_mc_rust_gaussian_uncertainty(
+            MC_REPEATS,
+            SamplingMethod::Pseudorandom,
+            "mc_cpu_gaussian_uncertainty_rust_pseudorandom",
+            "gaussian_uncertainty_pseudorandom",
+        ),
+        benchmark_mc_rust_gaussian_uncertainty(
+            MC_REPEATS,
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_gaussian_uncertainty_rust_randomized_halton",
+            "gaussian_uncertainty_randomized_halton",
+        ),
+        benchmark_mc_rust_gaussian_uncertainty(
+            MC_REPEATS,
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_gaussian_uncertainty_rust_latin_hypercube",
+            "gaussian_uncertainty_latin_hypercube",
+        ),
+        benchmark_mc_rust_gaussian_uncertainty(
+            MC_REPEATS,
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_gaussian_uncertainty_rust_scrambled_sobol",
+            "gaussian_uncertainty_scrambled_sobol",
+        ),
     ];
 
     if let Some(metal_result) = benchmark_mc_native_metal_stepwise(MC_REPEATS) {
@@ -76,10 +300,73 @@ pub fn run_default_benchmarks() -> BenchmarkReport {
     {
         results.push(metal_quality);
     }
+    if let Some(metal_result) = benchmark_mc_native_metal_down_and_out_stepwise(MC_REPEATS) {
+        results.push(metal_result);
+    }
+    if let Some(metal_result) =
+        benchmark_mc_native_metal_down_and_out_stepwise_control_variate(MC_REPEATS)
+    {
+        results.push(metal_result);
+    }
+    if let Some(metal_quality) =
+        benchmark_mc_native_metal_down_and_out_stepwise_control_variate_quality()
+    {
+        results.push(metal_quality);
+    }
 
     results.extend(benchmark_python_competitors(
         MC_PATHS, MC_STEPS, MC_REPEATS, 42,
     ));
+
+    BenchmarkReport {
+        generated_at_unix_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_millis(),
+        results,
+    }
+}
+
+fn run_compact_benchmarks_inner() -> BenchmarkReport {
+    let spec = sample_spec(false);
+
+    let results = vec![
+        benchmark_schema_validation(&spec, 1_000),
+        benchmark_planner_overhead(&spec, 1_000),
+        benchmark_planner_choice_accuracy(),
+        benchmark_planner_choice_accuracy_measured(),
+        benchmark_mc_rust_cpu_stepwise(1),
+        benchmark_mc_rust_cpu_stepwise_antithetic_quality(),
+        benchmark_mc_rust_cpu_terminal(1),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlmc(1),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlmc_quality(),
+        benchmark_mc_rust_cpu_arithmetic_asian_mlqmc(1),
+        benchmark_mc_rust_cpu_down_and_out_stepwise(1),
+        benchmark_mc_rust_cpu_european_call_randomized_halton_control_variate_quality(),
+        benchmark_mc_rust_cpu_european_call_latin_hypercube(1),
+        benchmark_mc_rust_cpu_european_call_latin_hypercube_control_variate_quality(),
+        benchmark_mc_rust_cpu_european_pricing_quality(
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_qmc_quality_european_scrambled_sobol",
+            "pricing_quality_european_scrambled_sobol",
+        ),
+        benchmark_mc_rust_cpu_asian_pricing_quality(
+            SamplingMethod::LatinHypercube,
+            "mc_cpu_qmc_quality_arithmetic_asian_latin_hypercube",
+            "pricing_quality_arithmetic_asian_latin_hypercube",
+        ),
+        benchmark_mc_rust_cpu_down_and_out_pricing_quality(
+            SamplingMethod::RandomizedHalton,
+            "mc_cpu_qmc_quality_down_and_out_randomized_halton",
+            "pricing_quality_down_and_out_randomized_halton",
+        ),
+        benchmark_mc_rust_gaussian_uncertainty(
+            1,
+            SamplingMethod::ScrambledSobol,
+            "mc_cpu_gaussian_uncertainty_rust_scrambled_sobol",
+            "gaussian_uncertainty_scrambled_sobol",
+        ),
+    ];
 
     BenchmarkReport {
         generated_at_unix_ms: SystemTime::now()
@@ -97,6 +384,114 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         .find(|r| r.benchmark_name == "mc_cpu_european_call_rust")
         .and_then(|r| r.runtime_ms())
         .unwrap_or(f64::INFINITY);
+    let metal = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_metal_european_call_native")
+        .and_then(|r| r.runtime_ms());
+    let down_and_out_cpu = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_down_and_out_call_rust")
+        .and_then(|r| r.runtime_ms());
+    let down_and_out_metal = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_metal_down_and_out_call_native")
+        .and_then(|r| r.runtime_ms());
+    let measured_planner_accuracy = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "planner_choice_accuracy_measured")
+        .and_then(|r| r.metric_value);
+    let halton_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_randomized_halton")
+        .and_then(|r| r.runtime_ms());
+    let halton_cv_ratio = report
+        .results
+        .iter()
+        .find(|r| {
+            r.benchmark_name
+                == "mc_cpu_european_call_rust_randomized_halton_control_variate_quality"
+        })
+        .and_then(|r| r.metric_value);
+    let lhs_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_latin_hypercube")
+        .and_then(|r| r.runtime_ms());
+    let lhs_cv_ratio = report
+        .results
+        .iter()
+        .find(|r| {
+            r.benchmark_name == "mc_cpu_european_call_rust_latin_hypercube_control_variate_quality"
+        })
+        .and_then(|r| r.metric_value);
+    let sobol_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_scrambled_sobol")
+        .and_then(|r| r.runtime_ms());
+    let sobol_bridge_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_rust_scrambled_sobol_brownian_bridge")
+        .and_then(|r| r.runtime_ms());
+    let sobol_bridge_cv_ratio = report
+        .results
+        .iter()
+        .find(|r| {
+            r.benchmark_name
+                == "mc_cpu_european_call_rust_scrambled_sobol_brownian_bridge_control_variate_quality"
+        })
+        .and_then(|r| r.metric_value);
+    let rust_sobol_generation = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_qmc_rust_scrambled_sobol_generation")
+        .and_then(|r| r.runtime_ms());
+    let scipy_sobol_generation = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_qmc_scipy_qmc_sobol_generation")
+        .and_then(|r| r.runtime_ms());
+    let asian_mlmc_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_arithmetic_asian_call_rust_mlmc")
+        .and_then(|r| r.runtime_ms());
+    let asian_mlmc_ratio = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_arithmetic_asian_call_rust_mlmc_quality")
+        .and_then(|r| r.metric_value);
+    let asian_mlqmc_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_arithmetic_asian_call_rust_mlqmc")
+        .and_then(|r| r.runtime_ms());
+    let asian_mlqmc_ratio = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_arithmetic_asian_call_rust_mlqmc_quality")
+        .and_then(|r| r.metric_value);
+    let gaussian_lhs_runtime = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_gaussian_uncertainty_rust_latin_hypercube")
+        .and_then(|r| r.runtime_ms());
+    let gaussian_lhs_abs_error = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_gaussian_uncertainty_rust_latin_hypercube")
+        .and_then(|r| r.metric_value);
+    let gaussian_pseudorandom_abs_error = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_gaussian_uncertainty_rust_pseudorandom")
+        .and_then(|r| r.metric_value);
 
     let mut competitor_rows = report
         .results
@@ -130,10 +525,30 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         return out;
     }
 
+    out.push_str("Current tracked leaders:\n");
     out.push_str(&format!(
-        "Current Rust fair baseline (`mc_cpu_european_call_rust`, step-wise): `{:.3} ms`\n\n",
+        "- Rust fair CPU baseline (`mc_cpu_european_call_rust`, step-wise): `{:.3} ms`\n",
         rust
     ));
+    if let Some(runtime) = metal {
+        out.push_str(&format!(
+            "- Native Metal GBM baseline (`mc_metal_european_call_native`): `{:.3} ms`\n",
+            runtime
+        ));
+    }
+    if let (Some(cpu), Some(metal)) = (down_and_out_cpu, down_and_out_metal) {
+        out.push_str(&format!(
+            "- Down-and-out breadth check: CPU `{:.3} ms`, Metal `{:.3} ms`\n",
+            cpu, metal
+        ));
+    }
+    if let Some(accuracy) = measured_planner_accuracy {
+        out.push_str(&format!(
+            "- Measured planner choice accuracy: `{:.1}%`\n",
+            accuracy
+        ));
+    }
+    out.push('\n');
 
     let slower_than = competitor_rows
         .iter()
@@ -141,12 +556,99 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         .collect::<Vec<_>>();
 
     if slower_than.is_empty() {
-        out.push_str("Status: Rust currently leads available CPU baselines for this workload.\n\n");
+        out.push_str(
+            "Status: Rust currently leads the available CPU baselines for the tracked fair European workload.\n\n",
+        );
         out.push_str("Maintain lead plan:\n");
         out.push_str("- Keep the step-wise benchmark as the primary competitive claim.\n");
         out.push_str("- Keep RNG and loop hot path allocation-free.\n");
-        out.push_str("- Add release-mode benchmark gates for MC runtime.\n");
-        out.push_str("- Expand competitor matrix to GPU baselines (JAX/CuPy/PyTorch) when hardware is available.\n");
+        out.push_str("- Keep breadth claims tied to the workloads we have actually benchmarked: European, arithmetic Asian, and down-and-out.\n");
+        out.push_str("- Expand competitor matrix to GPU baselines (JAX/CuPy/PyTorch/CUDA-native) when hardware is available.\n");
+        if let Some(runtime) = halton_runtime {
+            out.push_str(&format!(
+                "- First randomized-QMC pricing surface is live via randomized Halton (`{:.3} ms`), but it is currently a quality-first pricing path rather than a speed leader.\n",
+                runtime
+            ));
+        }
+        if let Some(runtime) = lhs_runtime {
+            out.push_str(&format!(
+                "- Latin hypercube pricing is live (`{:.3} ms`) as the first non-QMC structured-sampling breadth path.\n",
+                runtime
+            ));
+        }
+        if let Some(runtime) = sobol_runtime {
+            out.push_str(&format!(
+                "- Scrambled Sobol pricing is live (`{:.3} ms`) as the stronger QMC breadth path.\n",
+                runtime
+            ));
+        }
+        if let Some(runtime) = sobol_bridge_runtime {
+            out.push_str(&format!(
+                "- Scrambled Sobol with Brownian bridge pricing is live (`{:.3} ms`) for path construction experiments.\n",
+                runtime
+            ));
+        }
+        if let (Some(rust_runtime), Some(scipy_runtime)) =
+            (rust_sobol_generation, scipy_sobol_generation)
+        {
+            let speedup = scipy_runtime / rust_runtime;
+            out.push_str(&format!(
+                "- QMC generation scoreboard is live: Rust scrambled Sobol generation `{:.3} ms`, SciPy scrambled Sobol generation `{:.3} ms` (`{:.2}x` Rust/SciPy speedup).\n",
+                rust_runtime, scipy_runtime, speedup
+            ));
+        }
+        if let Some(runtime) = asian_mlmc_runtime {
+            out.push_str(&format!(
+                "- Arithmetic Asian MLMC is live (`{:.3} ms`) with adaptive tolerance planning as the first multilevel CPU reference path.\n",
+                runtime
+            ));
+        }
+        if let Some(runtime) = asian_mlqmc_runtime {
+            out.push_str(&format!(
+                "- Arithmetic Asian MLQMC is live (`{:.3} ms`) with replicated scrambling and adaptive tolerance planning.\n",
+                runtime
+            ));
+        }
+        if let (Some(runtime), Some(lhs_error), Some(random_error)) = (
+            gaussian_lhs_runtime,
+            gaussian_lhs_abs_error,
+            gaussian_pseudorandom_abs_error,
+        ) {
+            out.push_str(&format!(
+                "- Gaussian UQ benchmark is live: Latin hypercube `{:.3} ms`, abs error `{:.6}` vs pseudorandom abs error `{:.6}`.\n",
+                runtime, lhs_error, random_error
+            ));
+        }
+        if let Some(ratio) = halton_cv_ratio {
+            out.push_str(&format!(
+                "- Preserve the randomized-QMC quality gain (`stderr_ratio_vs_standard = {:.3}`) while optimizing sequence generation and path construction.\n",
+                ratio
+            ));
+        }
+        if let Some(ratio) = lhs_cv_ratio {
+            out.push_str(&format!(
+                "- Preserve the Latin-hypercube quality gain (`stderr_ratio_vs_standard = {:.3}`) while benchmarking it across more workload families.\n",
+                ratio
+            ));
+        }
+        if let Some(ratio) = sobol_bridge_cv_ratio {
+            out.push_str(&format!(
+                "- Preserve the Sobol Brownian-bridge quality gain (`stderr_ratio_vs_standard = {:.3}`) while optimizing its current runtime overhead.\n",
+                ratio
+            ));
+        }
+        if let Some(ratio) = asian_mlmc_ratio {
+            out.push_str(&format!(
+                "- Track arithmetic Asian MLMC quality (`stderr_ratio_vs_standard = {:.3}`) and calibrate tolerance defaults before claiming it as a default winner.\n",
+                ratio
+            ));
+        }
+        if let Some(ratio) = asian_mlqmc_ratio {
+            out.push_str(&format!(
+                "- Preserve arithmetic Asian replicated MLQMC quality (`stderr_ratio_vs_standard = {:.3}`) while reducing its runtime overhead and increasing replicate coverage.\n",
+                ratio
+            ));
+        }
         if let Some(terminal_runtime) = report
             .results
             .iter()
@@ -158,10 +660,16 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
                 terminal_runtime
             ));
         }
+        if let Some(accuracy) = measured_planner_accuracy {
+            out.push_str(&format!(
+                "- Improve planner calibration beyond the current measured accuracy of `{:.1}%` as workload breadth increases.\n",
+                accuracy
+            ));
+        }
         return out;
     }
 
-    out.push_str("Status: Rust is slower than at least one available baseline.\n\n");
+    out.push_str("Status: Rust is slower than at least one available CPU baseline on the tracked fair workload.\n\n");
     out.push_str("Observed gaps:\n");
     for (name, runtime, ratio) in &slower_than {
         out.push_str(&format!(
@@ -179,6 +687,7 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         "- Keep deterministic multithreaded path partitioning with stable reduction order.\n",
     );
     out.push_str("- Benchmark release profile (`--release`) and optimize hottest functions with profiler evidence.\n");
+    out.push_str("- Keep breadth work going in parallel so we do not win a single benchmark and lose the library surface.\n");
     out.push_str("- Keep workload-specialized kernels as explicit secondary benchmarks, not as the sole competitiveness claim.\n");
 
     out
@@ -505,6 +1014,44 @@ fn benchmark_planner_choice_accuracy_measured() -> BenchmarkResult {
             ),
         },
         Scenario {
+            spec: sample_spec(false),
+            run_config: RunConfig {
+                n_paths: 100_000,
+                n_steps: 64,
+                planner_mode: PlannerMode::Balanced,
+                backend_preference: BackendPreference::Auto,
+            },
+            support: local_support(metal_supported),
+            measured_winner: measured_winner_for_local_backends_barrier(
+                100_000,
+                64,
+                MonteCarloTechnique::ControlVariate,
+                9_006,
+                metal_supported,
+            ),
+        },
+        Scenario {
+            spec: sample_spec(false),
+            run_config: RunConfig {
+                n_paths: 65_536,
+                n_steps: 64,
+                planner_mode: PlannerMode::Balanced,
+                backend_preference: BackendPreference::Auto,
+            },
+            support: vec![
+                BackendSupportReport::supported(BackendId::CpuNative),
+                BackendSupportReport::unsupported(
+                    BackendId::NvidiaCuda,
+                    "no measured CUDA data on this machine",
+                ),
+                BackendSupportReport::unsupported(
+                    BackendId::AppleMetal,
+                    "native Metal randomized QMC is not available yet",
+                ),
+            ],
+            measured_winner: BackendId::CpuNative,
+        },
+        Scenario {
             spec: sample_spec(true),
             run_config: RunConfig {
                 n_paths: 100_000,
@@ -609,6 +1156,25 @@ fn measured_winner_for_local_backends_asian(
     }
 }
 
+fn measured_winner_for_local_backends_barrier(
+    n_paths: usize,
+    n_steps: usize,
+    technique: MonteCarloTechnique,
+    seed: u64,
+    metal_supported: bool,
+) -> BackendId {
+    let cpu_runtime_ms = measure_cpu_barrier_runtime_ms(n_paths, n_steps, technique, seed);
+
+    if !metal_supported {
+        return BackendId::CpuNative;
+    }
+
+    match measure_metal_barrier_runtime_ms(n_paths, n_steps, technique, seed) {
+        Some(metal_runtime_ms) if metal_runtime_ms < cpu_runtime_ms => BackendId::AppleMetal,
+        _ => BackendId::CpuNative,
+    }
+}
+
 fn measure_cpu_asian_runtime_ms(
     n_paths: usize,
     n_steps: usize,
@@ -625,6 +1191,25 @@ fn measure_cpu_asian_runtime_ms(
 
     let started = Instant::now();
     let _ = arithmetic_asian_call_price_mc_cpu(&cfg);
+    started.elapsed().as_secs_f64() * 1_000.0
+}
+
+fn measure_cpu_barrier_runtime_ms(
+    n_paths: usize,
+    n_steps: usize,
+    technique: MonteCarloTechnique,
+    seed: u64,
+) -> f64 {
+    let cfg = DownAndOutCallConfig {
+        n_paths,
+        n_steps,
+        seed,
+        technique,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let started = Instant::now();
+    let _ = down_and_out_call_price_mc_cpu(&cfg);
     started.elapsed().as_secs_f64() * 1_000.0
 }
 
@@ -745,6 +1330,62 @@ fn measure_metal_asian_runtime_ms(
         };
         let result = backend
             .execute(&artifact, &BackendExecutionInput::ArithmeticAsianCall(cfg))
+            .ok()?;
+        Some(result.runtime_ms)
+    }
+}
+
+fn measure_metal_barrier_runtime_ms(
+    n_paths: usize,
+    n_steps: usize,
+    technique: MonteCarloTechnique,
+    seed: u64,
+) -> Option<f64> {
+    #[cfg(not(feature = "metal-native"))]
+    {
+        let _ = (n_paths, n_steps, technique, seed);
+        None
+    }
+
+    #[cfg(feature = "metal-native")]
+    {
+        let backend = AppleMetalBackend::new();
+        let mut devices = backend.discover_devices();
+        let device = devices.pop()?;
+        let plan = ExecutionPlan {
+            backend: BackendId::AppleMetal,
+            planner_mode: PlannerMode::Balanced,
+            n_paths,
+            n_steps,
+            features: FeatureSummary::default(),
+            decision_report: BackendDecisionReport {
+                selected_backend: BackendId::AppleMetal,
+                reasons: vec!["measured planner calibration".to_string()],
+                rejected_backends: Vec::new(),
+            },
+        };
+        let artifact = backend.compile(&plan, &device).ok()?;
+        let warmup_cfg = DownAndOutCallConfig {
+            n_paths,
+            n_steps,
+            seed: seed.saturating_sub(1),
+            technique,
+            ..DownAndOutCallConfig::default()
+        };
+        let _ = backend.execute(
+            &artifact,
+            &BackendExecutionInput::DownAndOutCall(warmup_cfg),
+        );
+
+        let cfg = DownAndOutCallConfig {
+            n_paths,
+            n_steps,
+            seed,
+            technique,
+            ..DownAndOutCallConfig::default()
+        };
+        let result = backend
+            .execute(&artifact, &BackendExecutionInput::DownAndOutCall(cfg))
             .ok()?;
         Some(result.runtime_ms)
     }
@@ -1503,6 +2144,105 @@ fn benchmark_mc_rust_cpu_arithmetic_asian_stepwise_control_variate(
     }
 }
 
+fn benchmark_mc_rust_cpu_arithmetic_asian_mlmc(repeats: usize) -> BenchmarkResult {
+    benchmark_arithmetic_asian_mlmc_config(
+        repeats,
+        adaptive_arithmetic_asian_mlmc_config(SamplingMethod::Pseudorandom, 1, 42),
+        "mc_cpu_arithmetic_asian_call_rust_mlmc",
+        "arithmetic_asian_multilevel_coupled_adaptive_tolerance",
+    )
+}
+
+fn benchmark_mc_rust_cpu_arithmetic_asian_mlqmc(repeats: usize) -> BenchmarkResult {
+    benchmark_arithmetic_asian_mlmc_config(
+        repeats,
+        adaptive_arithmetic_asian_mlmc_config(
+            SamplingMethod::ScrambledSobol,
+            ASIAN_MLQMC_REPLICATES,
+            42,
+        ),
+        "mc_cpu_arithmetic_asian_call_rust_mlqmc",
+        "arithmetic_asian_multilevel_scrambled_sobol_replicated_adaptive_tolerance",
+    )
+}
+
+fn adaptive_arithmetic_asian_mlmc_config(
+    sampling: SamplingMethod,
+    scramble_replicates: usize,
+    seed: u64,
+) -> ArithmeticAsianMlmcConfig {
+    let pilot_cfg = ArithmeticAsianMlmcConfig {
+        base_steps: 8,
+        levels: 4,
+        refinement_factor: 2,
+        paths_per_level: vec![ASIAN_MLMC_PILOT_PATHS; 4],
+        seed,
+        sampling,
+        scramble_replicates: 1,
+        ..ArithmeticAsianMlmcConfig::default()
+    };
+
+    let tolerance = ArithmeticAsianMlmcToleranceConfig {
+        target_stderr: ASIAN_MLMC_TARGET_STDERR,
+        pilot_paths_per_level: ASIAN_MLMC_PILOT_PATHS,
+        min_step_updates: ASIAN_MLMC_MIN_STEP_UPDATES,
+        max_step_updates: ASIAN_MLMC_MAX_STEP_UPDATES,
+    };
+    let mut cfg = ArithmeticAsianMlmcConfig {
+        scramble_replicates,
+        ..pilot_cfg
+    };
+    let plan = solve_arithmetic_asian_mlmc_tolerance_cpu(&cfg, &tolerance);
+
+    cfg.paths_per_level = plan.paths_per_level;
+    cfg
+}
+
+fn benchmark_arithmetic_asian_mlmc_config(
+    repeats: usize,
+    cfg: ArithmeticAsianMlmcConfig,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+    let mut step_updates = 0usize;
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg.clone();
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = arithmetic_asian_call_price_mlmc_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+        step_updates = result.total_step_updates;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::arithmetic_asian_call_price_mlmc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            step_updates as f64
+        } else {
+            (step_updates as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
 fn benchmark_mc_rust_cpu_stepwise_antithetic_quality() -> BenchmarkResult {
     let standard_cfg = EuropeanCallConfig {
         n_paths: MC_PATHS,
@@ -1683,6 +2423,1025 @@ fn benchmark_mc_rust_cpu_arithmetic_asian_stepwise_control_variate_quality() -> 
     }
 }
 
+fn benchmark_mc_rust_cpu_arithmetic_asian_mlmc_quality() -> BenchmarkResult {
+    let standard_cfg = ArithmeticAsianCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_112,
+        ..ArithmeticAsianCallConfig::default()
+    };
+    let mlmc_cfg = adaptive_arithmetic_asian_mlmc_config(SamplingMethod::Pseudorandom, 1, 7_112);
+
+    let standard = arithmetic_asian_call_price_mc_cpu(&standard_cfg);
+    let mlmc = arithmetic_asian_call_price_mlmc_cpu(&mlmc_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        mlmc.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_arithmetic_asian_call_rust_mlmc_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::arithmetic_asian_call_price_mlmc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("arithmetic_asian_multilevel_coupled_adaptive_tolerance".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: mlmc.total_step_updates as f64,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_arithmetic_asian_mlqmc_quality() -> BenchmarkResult {
+    let standard_cfg = ArithmeticAsianCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_113,
+        ..ArithmeticAsianCallConfig::default()
+    };
+    let mlqmc_cfg = adaptive_arithmetic_asian_mlmc_config(
+        SamplingMethod::ScrambledSobol,
+        ASIAN_MLQMC_REPLICATES,
+        7_113,
+    );
+
+    let standard = arithmetic_asian_call_price_mc_cpu(&standard_cfg);
+    let mlqmc = arithmetic_asian_call_price_mlmc_cpu(&mlqmc_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        mlqmc.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_arithmetic_asian_call_rust_mlqmc_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::arithmetic_asian_call_price_mlmc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(
+            "arithmetic_asian_multilevel_scrambled_sobol_replicated_adaptive_tolerance".to_string(),
+        ),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: mlqmc.total_step_updates as f64,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_call_randomized_halton(repeats: usize) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..EuropeanCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_stepwise(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_randomized_halton".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths_randomized_halton".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_qmc_generation(
+    repeats: usize,
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut mean_abs = Vec::with_capacity(repeats);
+
+    for rep in 0..repeats {
+        let started = Instant::now();
+        let samples = generate_standard_normals_cpu(
+            sampling,
+            QMC_GENERATION_POINTS,
+            QMC_GENERATION_DIMENSIONS,
+            42 + rep as u64,
+        );
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+
+        runtimes.push(runtime_ms);
+        mean_abs.push(mean.abs());
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let generated_values = QMC_GENERATION_POINTS.saturating_mul(QMC_GENERATION_DIMENSIONS);
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::generate_standard_normals_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            generated_values as f64
+        } else {
+            generated_values as f64 / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("normal_mean_abs".to_string()),
+        metric_value: Some(mean_abs.iter().sum::<f64>() / mean_abs.len() as f64),
+    }
+}
+
+fn benchmark_mc_rust_gaussian_uncertainty(
+    repeats: usize,
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = GaussianUncertaintyConfig {
+        n_samples: MC_PATHS,
+        dimensions: 3,
+        seed: 42,
+        sampling,
+    };
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut abs_errors = Vec::with_capacity(repeats);
+
+    for rep in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + rep as u64;
+        let started = Instant::now();
+        let result = gaussian_uncertainty_mean_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        abs_errors.push(result.abs_error);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_abs_error = abs_errors.iter().sum::<f64>() / abs_errors.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::gaussian_uncertainty_mean_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_samples as f64
+        } else {
+            cfg.n_samples as f64 / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("abs_error_vs_analytic_mean".to_string()),
+        metric_value: Some(avg_abs_error),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_call_randomized_halton_control_variate_quality() -> BenchmarkResult
+{
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_211,
+        sampling: SamplingMethod::RandomizedHalton,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        control.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_randomized_halton_control_variate_quality"
+            .to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths_randomized_halton_control_variate".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_call_latin_hypercube(repeats: usize) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        sampling: SamplingMethod::LatinHypercube,
+        ..EuropeanCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_stepwise(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_latin_hypercube".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths_latin_hypercube".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_call_latin_hypercube_control_variate_quality() -> BenchmarkResult
+{
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_251,
+        sampling: SamplingMethod::LatinHypercube,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        control.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_european_call_rust_latin_hypercube_control_variate_quality"
+            .to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("stepwise_paths_latin_hypercube_control_variate".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_structured(
+    repeats: usize,
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        sampling,
+        ..EuropeanCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = european_call_price_mc_cpu_stepwise(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_structured_control_variate_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let standard_cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_261,
+        sampling,
+        ..EuropeanCallConfig::default()
+    };
+    let control_cfg = EuropeanCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = european_call_price_mc_cpu_stepwise(&standard_cfg);
+    let control = european_call_price_mc_cpu_stepwise(&control_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        control.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_price_mc_cpu_stepwise".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_pricing_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 8_101,
+        ..EuropeanCallConfig::default()
+    };
+
+    let started = Instant::now();
+    let comparison = compare_european_call_sampling_quality_cpu(&cfg, sampling);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::compare_european_call_sampling_quality_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("stderr_ratio_vs_pseudorandom".to_string()),
+        metric_value: Some(comparison.stderr_ratio_vs_pseudorandom),
+    }
+}
+
+fn benchmark_mc_rust_cpu_down_and_out_stepwise(repeats: usize) -> BenchmarkResult {
+    let cfg = DownAndOutCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = down_and_out_call_price_mc_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_down_and_out_call_rust".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::down_and_out_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("down_and_out_stepwise".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_down_and_out_stepwise_control_variate(repeats: usize) -> BenchmarkResult {
+    let cfg = DownAndOutCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        technique: MonteCarloTechnique::ControlVariate,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = down_and_out_call_price_mc_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_down_and_out_call_rust_control_variate".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::down_and_out_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("down_and_out_stepwise_control_variate".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_down_and_out_stepwise_control_variate_quality() -> BenchmarkResult {
+    let standard_cfg = DownAndOutCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_311,
+        ..DownAndOutCallConfig::default()
+    };
+    let control_cfg = DownAndOutCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = down_and_out_call_price_mc_cpu(&standard_cfg);
+    let control = down_and_out_call_price_mc_cpu(&control_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        control.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_down_and_out_call_rust_control_variate_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::down_and_out_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("down_and_out_stepwise_control_variate".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_asian_structured(
+    repeats: usize,
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = ArithmeticAsianCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        sampling,
+        ..ArithmeticAsianCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = arithmetic_asian_call_price_mc_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::arithmetic_asian_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_asian_structured_control_variate_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let standard_cfg = ArithmeticAsianCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_321,
+        sampling,
+        ..ArithmeticAsianCallConfig::default()
+    };
+    let control_cfg = ArithmeticAsianCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = arithmetic_asian_call_price_mc_cpu(&standard_cfg);
+    let control = arithmetic_asian_call_price_mc_cpu(&control_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        control.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::arithmetic_asian_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_asian_pricing_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = ArithmeticAsianCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 8_201,
+        ..ArithmeticAsianCallConfig::default()
+    };
+
+    let started = Instant::now();
+    let comparison = compare_arithmetic_asian_sampling_quality_cpu(&cfg, sampling);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::compare_arithmetic_asian_sampling_quality_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("stderr_ratio_vs_pseudorandom".to_string()),
+        metric_value: Some(comparison.stderr_ratio_vs_pseudorandom),
+    }
+}
+
+fn benchmark_mc_rust_cpu_down_and_out_structured(
+    repeats: usize,
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = DownAndOutCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        sampling,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let mut runtimes = Vec::with_capacity(repeats);
+    let mut prices = Vec::with_capacity(repeats);
+
+    for i in 0..repeats {
+        let mut cfg_i = cfg;
+        cfg_i.seed = cfg.seed + i as u64;
+        let started = Instant::now();
+        let result = down_and_out_call_price_mc_cpu(&cfg_i);
+        let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+        runtimes.push(runtime_ms);
+        prices.push(result.price);
+    }
+
+    let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+    let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::down_and_out_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: repeats,
+        total_runtime_ms: avg_runtime_ms * repeats as f64,
+        per_iteration_us: avg_runtime_ms * 1_000.0,
+        throughput_per_sec: if avg_runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            (cfg.n_paths as f64) / (avg_runtime_ms / 1_000.0)
+        },
+        metric_name: Some("price_estimate".to_string()),
+        metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_down_and_out_structured_control_variate_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let standard_cfg = DownAndOutCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 7_421,
+        sampling,
+        ..DownAndOutCallConfig::default()
+    };
+    let control_cfg = DownAndOutCallConfig {
+        technique: MonteCarloTechnique::ControlVariate,
+        ..standard_cfg
+    };
+
+    let standard = down_and_out_call_price_mc_cpu(&standard_cfg);
+    let control = down_and_out_call_price_mc_cpu(&control_cfg);
+    let stderr_ratio = if standard.stderr == 0.0 {
+        1.0
+    } else {
+        control.stderr / standard.stderr
+    };
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::down_and_out_call_price_mc_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: 0.0,
+        per_iteration_us: 0.0,
+        throughput_per_sec: 0.0,
+        metric_name: Some("stderr_ratio_vs_standard".to_string()),
+        metric_value: Some(stderr_ratio),
+    }
+}
+
+fn benchmark_mc_rust_cpu_down_and_out_pricing_quality(
+    sampling: SamplingMethod,
+    benchmark_name: &str,
+    methodology: &str,
+) -> BenchmarkResult {
+    let cfg = DownAndOutCallConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 8_301,
+        ..DownAndOutCallConfig::default()
+    };
+
+    let started = Instant::now();
+    let comparison = compare_down_and_out_sampling_quality_cpu(&cfg, sampling);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    BenchmarkResult {
+        benchmark_name: benchmark_name.to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::compare_down_and_out_sampling_quality_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(methodology.to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("stderr_ratio_vs_pseudorandom".to_string()),
+        metric_value: Some(comparison.stderr_ratio_vs_pseudorandom),
+    }
+}
+
+fn benchmark_mc_native_metal_down_and_out_stepwise(_repeats: usize) -> Option<BenchmarkResult> {
+    benchmark_mc_native_metal_barrier_variant(
+        _repeats,
+        MonteCarloTechnique::Standard,
+        "mc_metal_down_and_out_call_native",
+        "down_and_out_stepwise_native_metal",
+    )
+}
+
+fn benchmark_mc_native_metal_down_and_out_stepwise_control_variate(
+    _repeats: usize,
+) -> Option<BenchmarkResult> {
+    benchmark_mc_native_metal_barrier_variant(
+        _repeats,
+        MonteCarloTechnique::ControlVariate,
+        "mc_metal_down_and_out_call_native_control_variate",
+        "down_and_out_stepwise_native_metal_control_variate",
+    )
+}
+
+fn benchmark_mc_native_metal_down_and_out_stepwise_control_variate_quality(
+) -> Option<BenchmarkResult> {
+    #[cfg(not(feature = "metal-native"))]
+    {
+        return None;
+    }
+
+    #[cfg(feature = "metal-native")]
+    {
+        let backend = AppleMetalBackend::new();
+        let mut devices = backend.discover_devices();
+        let device = devices.pop()?;
+
+        let plan = ExecutionPlan {
+            backend: BackendId::AppleMetal,
+            planner_mode: PlannerMode::Balanced,
+            n_paths: MC_PATHS,
+            n_steps: MC_STEPS,
+            features: FeatureSummary::default(),
+            decision_report: BackendDecisionReport {
+                selected_backend: BackendId::AppleMetal,
+                reasons: vec!["native metal benchmark".to_string()],
+                rejected_backends: Vec::new(),
+            },
+        };
+
+        let artifact = backend.compile(&plan, &device).ok()?;
+        let standard_cfg = DownAndOutCallConfig {
+            n_paths: MC_PATHS,
+            n_steps: MC_STEPS,
+            seed: 8_211,
+            ..DownAndOutCallConfig::default()
+        };
+        let control_cfg = DownAndOutCallConfig {
+            technique: MonteCarloTechnique::ControlVariate,
+            ..standard_cfg
+        };
+
+        let standard = backend
+            .execute(
+                &artifact,
+                &BackendExecutionInput::DownAndOutCall(standard_cfg),
+            )
+            .ok()?;
+        let adjusted = backend
+            .execute(
+                &artifact,
+                &BackendExecutionInput::DownAndOutCall(control_cfg),
+            )
+            .ok()?;
+        let stderr_ratio = if standard.stderr == 0.0 {
+            1.0
+        } else {
+            adjusted.stderr / standard.stderr
+        };
+
+        Some(BenchmarkResult {
+            benchmark_name: "mc_metal_down_and_out_call_native_control_variate_quality".to_string(),
+            benchmark_version: "0.1".to_string(),
+            implementation: "mc-core::backend::metal::AppleMetalBackend::execute".to_string(),
+            backend: "apple_metal".to_string(),
+            methodology: Some("down_and_out_stepwise_native_metal_control_variate".to_string()),
+            planner_mode: "n/a".to_string(),
+            iterations: 1,
+            total_runtime_ms: 0.0,
+            per_iteration_us: 0.0,
+            throughput_per_sec: 0.0,
+            metric_name: Some("stderr_ratio_vs_standard".to_string()),
+            metric_value: Some(stderr_ratio),
+        })
+    }
+}
+
+fn benchmark_mc_native_metal_barrier_variant(
+    _repeats: usize,
+    technique: MonteCarloTechnique,
+    benchmark_name: &str,
+    methodology: &str,
+) -> Option<BenchmarkResult> {
+    #[cfg(not(feature = "metal-native"))]
+    {
+        let _ = (_repeats, technique, benchmark_name, methodology);
+        return None;
+    }
+
+    #[cfg(feature = "metal-native")]
+    {
+        let backend = AppleMetalBackend::new();
+        let mut devices = backend.discover_devices();
+        let device = devices.pop()?;
+
+        let plan = ExecutionPlan {
+            backend: BackendId::AppleMetal,
+            planner_mode: PlannerMode::Balanced,
+            n_paths: MC_PATHS,
+            n_steps: MC_STEPS,
+            features: FeatureSummary::default(),
+            decision_report: BackendDecisionReport {
+                selected_backend: BackendId::AppleMetal,
+                reasons: vec!["native metal benchmark".to_string()],
+                rejected_backends: Vec::new(),
+            },
+        };
+
+        let artifact = backend.compile(&plan, &device).ok()?;
+        let mut runtimes = Vec::with_capacity(_repeats);
+        let mut prices = Vec::with_capacity(_repeats);
+
+        let warmup_cfg = DownAndOutCallConfig {
+            n_paths: MC_PATHS,
+            n_steps: MC_STEPS,
+            seed: 4_399,
+            technique,
+            ..DownAndOutCallConfig::default()
+        };
+        backend
+            .execute(
+                &artifact,
+                &BackendExecutionInput::DownAndOutCall(warmup_cfg),
+            )
+            .ok()?;
+
+        for i in 0.._repeats {
+            let cfg = DownAndOutCallConfig {
+                n_paths: MC_PATHS,
+                n_steps: MC_STEPS,
+                seed: 4_400 + i as u64,
+                technique,
+                ..DownAndOutCallConfig::default()
+            };
+
+            let result = backend
+                .execute(&artifact, &BackendExecutionInput::DownAndOutCall(cfg))
+                .ok()?;
+            runtimes.push(result.runtime_ms);
+            prices.push(result.price);
+        }
+
+        let avg_runtime_ms = runtimes.iter().sum::<f64>() / runtimes.len() as f64;
+        let avg_price = prices.iter().sum::<f64>() / prices.len() as f64;
+
+        Some(BenchmarkResult {
+            benchmark_name: benchmark_name.to_string(),
+            benchmark_version: "0.1".to_string(),
+            implementation: "mc-core::backend::metal::AppleMetalBackend::execute".to_string(),
+            backend: "apple_metal".to_string(),
+            methodology: Some(methodology.to_string()),
+            planner_mode: "n/a".to_string(),
+            iterations: _repeats,
+            total_runtime_ms: avg_runtime_ms * _repeats as f64,
+            per_iteration_us: avg_runtime_ms * 1_000.0,
+            throughput_per_sec: if avg_runtime_ms == 0.0 {
+                MC_PATHS as f64
+            } else {
+                (MC_PATHS as f64) / (avg_runtime_ms / 1_000.0)
+            },
+            metric_name: Some("price_estimate".to_string()),
+            metric_value: Some(avg_price),
+        })
+    }
+}
+
 fn benchmark_python_competitors(
     n_paths: usize,
     n_steps: usize,
@@ -1762,11 +3521,20 @@ fn benchmark_python_competitors(
                 let methodology = entry
                     .methodology
                     .unwrap_or_else(|| "stepwise_paths".to_string());
-                let benchmark_name = match methodology.as_str() {
-                    "terminal_distribution" => {
-                        format!("mc_cpu_european_call_{}_terminal", entry.library)
+                let benchmark_name = if methodology.starts_with("standard_normal_generation") {
+                    format!("mc_cpu_qmc_{}_generation", entry.library)
+                } else {
+                    match methodology.as_str() {
+                        "terminal_distribution" => {
+                            format!("mc_cpu_european_call_{}_terminal", entry.library)
+                        }
+                        _ => format!("mc_cpu_european_call_{}", entry.library),
                     }
-                    _ => format!("mc_cpu_european_call_{}", entry.library),
+                };
+                let work_units = if methodology.starts_with("standard_normal_generation") {
+                    n_paths.saturating_mul(n_steps) as f64
+                } else {
+                    n_paths as f64
                 };
                 BenchmarkResult {
                     benchmark_name,
@@ -1779,18 +3547,24 @@ fn benchmark_python_competitors(
                     total_runtime_ms: runtime_ms * repeats as f64,
                     per_iteration_us: runtime_ms * 1_000.0,
                     throughput_per_sec: if runtime_ms == 0.0 {
-                        n_paths as f64
+                        work_units
                     } else {
-                        n_paths as f64 / (runtime_ms / 1_000.0)
+                        work_units / (runtime_ms / 1_000.0)
                     },
-                    metric_name: Some("price_estimate".to_string()),
-                    metric_value: entry.price,
+                    metric_name: Some(
+                        entry
+                            .metric_name
+                            .unwrap_or_else(|| "price_estimate".to_string()),
+                    ),
+                    metric_value: entry.metric_value.or(entry.price),
                 }
             } else {
                 let methodology = entry.methodology.clone();
                 BenchmarkResult {
                     benchmark_name: if let Some(ref methodology) = methodology {
-                        if methodology == "terminal_distribution" {
+                        if methodology.starts_with("standard_normal_generation") {
+                            format!("mc_cpu_qmc_{}_generation_unavailable", entry.library)
+                        } else if methodology == "terminal_distribution" {
                             format!(
                                 "mc_cpu_european_call_{}_terminal_unavailable",
                                 entry.library
@@ -1844,6 +3618,8 @@ struct PythonLibraryResult {
     stderr: Option<f64>,
     #[allow(dead_code)]
     note: Option<String>,
+    metric_name: Option<String>,
+    metric_value: Option<f64>,
 }
 
 fn sample_spec(with_conditional: bool) -> SimulationSpec {

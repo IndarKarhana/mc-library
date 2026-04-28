@@ -13,6 +13,7 @@ import math
 import platform
 import sys
 import time
+import warnings
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -26,6 +27,8 @@ class LibraryResult:
     price: float | None
     stderr: float | None
     note: str | None
+    metric_name: str | None = None
+    metric_value: float | None = None
 
 
 def has_module(name: str) -> bool:
@@ -221,6 +224,52 @@ def benchmark_numba_terminal(n_paths: int, repeats: int, seed: int) -> LibraryRe
     )
 
 
+def benchmark_scipy_qmc_generation(
+    method: str, n_points: int, dimensions: int, repeats: int, seed: int
+) -> LibraryResult:
+    import numpy as np
+    from scipy import stats
+    from scipy.special import ndtri
+
+    times: list[float] = []
+    means: list[float] = []
+    methodology = {
+        "sobol": "standard_normal_generation_scrambled_sobol",
+        "halton": "standard_normal_generation_randomized_halton",
+        "lhs": "standard_normal_generation_latin_hypercube",
+    }[method]
+
+    for rep in range(repeats):
+        if method == "sobol":
+            engine = stats.qmc.Sobol(d=dimensions, scramble=True, seed=seed + rep)
+        elif method == "halton":
+            engine = stats.qmc.Halton(d=dimensions, scramble=True, seed=seed + rep)
+        else:
+            engine = stats.qmc.LatinHypercube(d=dimensions, scramble=True, seed=seed + rep)
+
+        start = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            uniforms = engine.random(n_points)
+        normals = ndtri(np.clip(uniforms, np.finfo(np.float64).tiny, 1.0 - np.finfo(np.float64).eps))
+        elapsed = (time.perf_counter() - start) * 1000.0
+
+        times.append(elapsed)
+        means.append(float(abs(np.mean(normals))))
+
+    return LibraryResult(
+        library=f"scipy_qmc_{method}",
+        methodology=methodology,
+        available=True,
+        runtime_ms=sum(times) / len(times),
+        price=None,
+        stderr=None,
+        note="generation-only benchmark; metric is absolute sample mean of generated normals",
+        metric_name="normal_mean_abs",
+        metric_value=sum(means) / len(means),
+    )
+
+
 def unavailable(name: str, methodology: str | None, note: str) -> LibraryResult:
     return LibraryResult(
         library=name,
@@ -259,6 +308,45 @@ def main() -> int:
         results.append(unavailable("numba", "stepwise_paths", "package not installed"))
         results.append(
             unavailable("numba", "terminal_distribution", "package not installed")
+        )
+
+    if has_module("scipy") and has_module("numpy"):
+        results.append(
+            benchmark_scipy_qmc_generation(
+                "sobol", args.paths, args.steps, args.repeats, args.seed
+            )
+        )
+        results.append(
+            benchmark_scipy_qmc_generation(
+                "halton", args.paths, args.steps, args.repeats, args.seed
+            )
+        )
+        results.append(
+            benchmark_scipy_qmc_generation(
+                "lhs", args.paths, args.steps, args.repeats, args.seed
+            )
+        )
+    else:
+        results.append(
+            unavailable(
+                "scipy_qmc_sobol",
+                "standard_normal_generation_scrambled_sobol",
+                "scipy or numpy package not installed",
+            )
+        )
+        results.append(
+            unavailable(
+                "scipy_qmc_halton",
+                "standard_normal_generation_randomized_halton",
+                "scipy or numpy package not installed",
+            )
+        )
+        results.append(
+            unavailable(
+                "scipy_qmc_lhs",
+                "standard_normal_generation_latin_hypercube",
+                "scipy or numpy package not installed",
+            )
         )
 
     for gpu_lib in ("jax", "cupy", "torch"):

@@ -14,6 +14,7 @@ native-gpu = ["cuda-native", "metal-native"]
 [dependencies]
 mc-schema = { path = "../mc-schema" }
 serde.workspace = true
+sobol_burley = "0.5"
 thiserror.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

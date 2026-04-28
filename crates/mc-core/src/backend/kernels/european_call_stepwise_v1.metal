@@ -43,6 +43,7 @@ kernel void mc_metal_european_call_stepwise_v1(
     constant uint& seed [[buffer(12)]],
     constant int& technique_mode [[buffer(13)]],
     constant int& payoff_mode [[buffer(14)]],
+    constant float& barrier [[buffer(15)]],
     uint gid [[thread_position_in_grid]],
     uint tid [[thread_index_in_threadgroup]],
     uint group_id [[threadgroup_position_in_grid]]
@@ -64,6 +65,8 @@ kernel void mc_metal_european_call_stepwise_v1(
             float log_b = log_s0;
             float arithmetic_sum_a = 0.0f;
             float arithmetic_sum_b = 0.0f;
+            bool knocked_out_a = exp(log_s0) <= barrier;
+            bool knocked_out_b = exp(log_s0) <= barrier;
 
             for (int step = 0; step < n_steps; ++step) {
                 float z = standard_normal(seed, gid, static_cast<uint>(step));
@@ -72,6 +75,9 @@ kernel void mc_metal_european_call_stepwise_v1(
                 if (payoff_mode == 1) {
                     arithmetic_sum_a += exp(log_a);
                     arithmetic_sum_b += exp(log_b);
+                } else if (payoff_mode == 2) {
+                    knocked_out_a = knocked_out_a || (exp(log_a) <= barrier);
+                    knocked_out_b = knocked_out_b || (exp(log_b) <= barrier);
                 }
             }
 
@@ -84,6 +90,9 @@ kernel void mc_metal_european_call_stepwise_v1(
                 float arithmetic_average_b = arithmetic_sum_b / float(n_steps);
                 payoff_a = arithmetic_average_a > strike ? (arithmetic_average_a - strike) * discount : 0.0f;
                 payoff_b = arithmetic_average_b > strike ? (arithmetic_average_b - strike) * discount : 0.0f;
+            } else if (payoff_mode == 2) {
+                payoff_a = knocked_out_a ? 0.0f : (s_a > strike ? (s_a - strike) * discount : 0.0f);
+                payoff_b = knocked_out_b ? 0.0f : (s_b > strike ? (s_b - strike) * discount : 0.0f);
             } else {
                 payoff_a = s_a > strike ? (s_a - strike) * discount : 0.0f;
                 payoff_b = s_b > strike ? (s_b - strike) * discount : 0.0f;
@@ -93,12 +102,15 @@ kernel void mc_metal_european_call_stepwise_v1(
     } else if (gid < static_cast<uint>(n_paths)) {
         float log_s_t = log_s0;
         float arithmetic_sum = 0.0f;
+        bool knocked_out = exp(log_s0) <= barrier;
 
         for (int step = 0; step < n_steps; ++step) {
             float z = standard_normal(seed, gid, static_cast<uint>(step));
             log_s_t += drift_dt + vol_dt * z;
             if (payoff_mode == 1) {
                 arithmetic_sum += exp(log_s_t);
+            } else if (payoff_mode == 2) {
+                knocked_out = knocked_out || (exp(log_s_t) <= barrier);
             }
         }
 
@@ -106,6 +118,8 @@ kernel void mc_metal_european_call_stepwise_v1(
         if (payoff_mode == 1) {
             float arithmetic_average = arithmetic_sum / float(n_steps);
             payoff = arithmetic_average > strike ? (arithmetic_average - strike) * discount : 0.0f;
+        } else if (payoff_mode == 2) {
+            payoff = knocked_out ? 0.0f : (s_t > strike ? (s_t - strike) * discount : 0.0f);
         } else {
             payoff = s_t > strike ? (s_t - strike) * discount : 0.0f;
         }

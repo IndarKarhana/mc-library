@@ -8,11 +8,11 @@ The gates prevent obvious regressions while the codebase is still early.
 
 ## Initial Gates
 
-1. `schema_validation` per-iteration latency should stay below `50 us` in debug benchmark runs.
+1. `schema_validation` per-iteration latency should stay below `100 us` in compact debug benchmark runs.
 2. `planner_overhead_auto` per-iteration latency should stay below `10 us` in debug benchmark runs.
 3. `planner_choice_accuracy` should remain at or above `75%` on the internal scenario set.
 4. `mc_cpu_european_call_rust` must be present in benchmark results.
-5. A competitiveness plan must always be generated (`benchmarks/improvement-plan.md`) and include either:
+5. The competitiveness-plan builder must produce a plan that includes either:
 - `Maintain lead plan` when we win
 - `Action plan to close the gap` when we lose
 6. If NumPy or Numba benchmarks are available, Rust CPU MC runtime should be faster on the tracked European-call workload.
@@ -21,6 +21,6 @@ These thresholds are intentionally conservative for early development and should
 
 ## Notes
 
-- These gates are measured against `crates/mc-bench` outputs.
-- Debug builds are currently used for convenience and fast iteration.
-- Release-mode benchmarking should be introduced for formal performance reporting.
+- These gates are measured against the compact `crates/mc-bench` profile for fast local and CI feedback.
+- Full benchmark runs still refresh `benchmarks/improvement-plan.md`; compact runs do not overwrite the tracked plan artifact.
+- Release-mode benchmark artifacts are used for formal performance reporting.

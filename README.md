@@ -20,6 +20,7 @@ This repository is in active build-out.
 - test-driven development is the default workflow
 - production-grade quality bar from day one
 - fast and lightweight implementation choices
+- benchmark claims must stay honest about workload scope and methodology
 
 ## Workspace Layout
 
@@ -30,7 +31,7 @@ This repository is in active build-out.
 ## Expressive API Example
 
 ```rust
-use mc_core::{EuropeanCallMethod, EuropeanCallPricer};
+use mc_core::{EuropeanCallMethod, EuropeanCallPricer, SamplingMethod};
 
 let result = EuropeanCallPricer::new()
     .s0(100.0)
@@ -42,37 +43,61 @@ let result = EuropeanCallPricer::new()
     .steps(64)
     .seed(42)
     .method(EuropeanCallMethod::StepwisePaths)
+    .sampling(SamplingMethod::LatinHypercube)
+    .control_variate()
     .price();
 ```
 
-The current CPU runtime exposes both:
+## Current Runtime Surface
+
+The CPU runtime now exposes:
 
 - a fair step-wise path benchmark path
 - a specialized terminal-distribution fast path
 - variance-reduction techniques including antithetic variates and control variates
+- separate sampling selection via `SamplingMethod::{Pseudorandom, RandomizedHalton, LatinHypercube, ScrambledSobol, ScrambledSobolBrownianBridge}`
+- arithmetic Asian multilevel Monte Carlo via `ArithmeticAsianMlmcConfig` and `arithmetic_asian_call_price_mlmc_cpu()`
+- a machine-readable method capability catalog via `monte_carlo_method_capabilities()`
+- method recommendation via `recommend_method()` in Rust and `mc_library.recommend_method()` in Python
+- multiple workload families:
+  - European call
+  - arithmetic Asian call
+  - down-and-out call
 
-The current GPU backends execute through explicit delegated CPU fallback semantics while native CUDA and Metal kernels are being built. That keeps the backend surface real and testable without overstating GPU acceleration.
+The GPU backend layer now exposes:
 
-`mc-core` now also exposes host-side native staging gates:
+- truthful delegated fallback semantics for unsupported features
+- staged native CUDA and Metal artifact metadata and kernel ABI contracts
+- real native Apple Metal execution for the current GBM step-wise workload family on supported Macs
+
+The current native Apple Metal path supports:
+
+- European call: `Standard`, `Antithetic`, `ControlVariate`
+- arithmetic Asian call: `Standard`, `ControlVariate`
+- down-and-out call: `Standard`, `ControlVariate`
+
+Structured-sampling requests currently run truthfully on CPU reference paths rather than being silently approximated on Metal.
+
+## Native Feature Gates
+
+`mc-core` exposes host-side native staging gates:
 
 - `cuda-native`
 - `metal-native`
 
-These feature flags validate native backend boundaries, kernel metadata, and toolchain probing without requiring local GPU hardware.
+These validate native backend boundaries, kernel metadata, and toolchain probing without requiring local GPU hardware.
 
-The CUDA path now includes an actual staged kernel source at:
+The CUDA path includes a staged kernel source at:
 
 - `crates/mc-core/src/backend/kernels/european_call_stepwise_v1.cu`
 
-When `cuda-native` is enabled and `nvcc` is available, the backend attempts PTX compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native launch support lands.
+When `cuda-native` is enabled and `nvcc` is available, the backend attempts PTX compilation during artifact staging and records the result in native artifact metadata. Execution still falls back to the CPU reference path until native CUDA launch support lands.
 
-The Metal path now includes a matching staged shader source at:
+The Metal path includes a staged shader source at:
 
 - `crates/mc-core/src/backend/kernels/european_call_stepwise_v1.metal`
 
-When `metal-native` is enabled and Apple developer tools are available, the backend attempts `.air` and `.metallib` compilation during artifact staging and records the result in native artifact metadata.
-
-On macOS, the first Metal-native execution path now runs in-process from Rust using cached Metal library and pipeline state. The current Apple GPU path executes the first European-call step-wise family natively on supported Macs, generates shocks on-device, and reduces aggregates on-device down to a single final value before host readback. The native Apple path now supports `Standard`, `Antithetic`, and `ControlVariate` techniques for this workload family.
+When `metal-native` is enabled, the backend can compile and execute the current staged Metal workload family in-process on supported macOS hosts.
 
 ## Running Tests
 
@@ -90,13 +115,25 @@ cargo test -p mc-core --features metal-native
 
 ## Running Benchmarks
 
+Fast smoke profile for local checks and benchmark-gate tests:
+
+```bash
+cargo run -p mc-bench -- --profile compact
+```
+
+Full profile for competitiveness artifacts:
+
 ```bash
 cargo run -p mc-bench -- --output benchmarks/latest-results.json
 ```
 
 ```bash
-cargo run -p mc-bench --release -- --output benchmarks/release-results.json
+cargo run -p mc-bench --release --features metal-native -- --output benchmarks/release-results.json
 ```
+
+The compact profile reports a representative subset and does not overwrite
+`benchmarks/improvement-plan.md`. The full profile remains the source for
+tracked performance claims.
 
 ## Benchmark Gates
 
@@ -113,33 +150,86 @@ Market landscape notes are in `docs/market-landscape.md`.
 
 From the latest release benchmark run:
 
-- fair step-wise Rust CPU path: `21.818 ms`
-- step-wise Rust antithetic path: `58.726 ms`
-- step-wise Rust control-variate path: `39.073 ms`
-- arithmetic Asian Rust CPU path: `31.783 ms`
-- arithmetic Asian Rust CPU control-variate path: `41.735 ms`
-- native Metal step-wise path on macOS: `1.457 ms`
-- native Metal antithetic step-wise path on macOS: `1.013 ms`
-- native Metal control-variate step-wise path on macOS: `1.439 ms`
-- native Metal arithmetic Asian path on macOS: `1.751 ms`
-- native Metal arithmetic Asian control-variate path on macOS: `1.520 ms`
-- step-wise NumPy baseline: see `benchmarks/release-results.json`
-- step-wise Numba baseline: see `benchmarks/release-results.json`
-- specialized Rust terminal-distribution fast path: `7.209 ms`
-- control-variate stderr ratio vs standard:
-  - step-wise: `0.411`
-  - terminal: `0.412`
-  - arithmetic Asian: `0.607`
-- antithetic stderr ratio vs standard:
-  - step-wise: `0.747`
-  - terminal: `0.741`
-- measured planner choice accuracy vs local backend winners: `83.3%`
+- fair step-wise Rust CPU European path: `11.169 ms`
+- step-wise Rust antithetic path: `28.507 ms`
+- step-wise Rust control-variate path: `12.673 ms`
+- arithmetic Asian Rust CPU path: `15.642 ms`
+- arithmetic Asian Rust CPU control-variate path: `15.899 ms`
+- arithmetic Asian Rust CPU MLMC path: `4.330 ms`
+- arithmetic Asian Rust CPU MLQMC path: `5.760 ms`
+- randomized Halton Rust CPU European path: `79.482 ms`
+- Latin hypercube Rust CPU European path: `64.128 ms`
+- scrambled Sobol Rust CPU European path: `79.564 ms`
+- scrambled Sobol Brownian bridge Rust CPU European path: `100.166 ms`
+- down-and-out Rust CPU path: `16.559 ms`
+- down-and-out Rust CPU control-variate path: `16.821 ms`
+- specialized Rust terminal-distribution fast path: `0.590 ms`
+- native Metal European path on macOS: `0.934 ms`
+- native Metal European antithetic path on macOS: `0.554 ms`
+- native Metal European control-variate path on macOS: `0.876 ms`
+- native Metal arithmetic Asian path on macOS: `0.860 ms`
+- native Metal arithmetic Asian control-variate path on macOS: `0.982 ms`
+- native Metal down-and-out path on macOS: `0.721 ms`
+- native Metal down-and-out control-variate path on macOS: `0.707 ms`
+- NumPy fair CPU baseline: `89.829 ms`
+- Numba fair CPU baseline: `222.752 ms`
+- measured planner choice accuracy vs local backend winners: `87.5%`
+
+Current QMC generation scoreboard from the same release run:
+
+- Rust scrambled Sobol normal generation: `74.457 ms`
+- SciPy scrambled Sobol normal generation: `116.551 ms`
+- Rust randomized Halton normal generation: `55.989 ms`
+- SciPy randomized Halton normal generation: `134.500 ms`
+- Rust Latin hypercube normal generation: `39.251 ms`
+- SciPy Latin hypercube normal generation: `187.319 ms`
+
+Current QMC pricing-quality and UQ scoreboard from the same release run:
+
+- European scrambled Sobol stderr ratio vs pseudorandom: `1.000`
+- arithmetic Asian Latin hypercube stderr ratio vs pseudorandom: `1.003`
+- down-and-out randomized Halton stderr ratio vs pseudorandom: `0.994`
+- Gaussian UQ pseudorandom abs error vs analytic mean: `0.006344`
+- Gaussian UQ randomized Halton abs error vs analytic mean: `0.000056`
+- Gaussian UQ Latin hypercube abs error vs analytic mean: `0.000039`
+- Gaussian UQ scrambled Sobol abs error vs analytic mean: `0.000043`
+
+Current quality ratios from the same release run:
+
+- European control-variate stderr ratio: `0.411`
+- European antithetic stderr ratio: `0.747`
+- arithmetic Asian control-variate stderr ratio: `0.607`
+- arithmetic Asian MLMC stderr ratio: `2.013`
+- arithmetic Asian MLQMC stderr ratio: `0.418`
+- randomized Halton European control-variate stderr ratio: `0.411`
+- Latin hypercube European control-variate stderr ratio: `0.410`
+- down-and-out control-variate stderr ratio: `0.418`
+- native Metal European control-variate stderr ratio: `0.409`
+- native Metal arithmetic Asian control-variate stderr ratio: `0.609`
+- native Metal down-and-out control-variate stderr ratio: `0.417`
+
+## Honest Status
+
+What we can honestly claim now:
+
+- CPU performance is strong against the available NumPy and Numba baselines on the tracked fair European workload.
+- Native Apple Metal is materially faster than our CPU baseline on the tracked European, arithmetic Asian, and down-and-out workloads.
+- The library has better breadth than before, with three option workload families, one non-option Gaussian UQ workload, randomized Halton, Latin hypercube, scrambled Sobol, and Brownian-bridge path construction. Direct QMC normal generation now beats the available SciPy QMC baselines on the tracked Sobol, Halton, and Latin-hypercube rows, and batched path-level filling has materially reduced structured-pricing overhead.
+- MLMC and MLQMC foundations are live for arithmetic Asian calls with per-level estimator metadata, pilot-based allocation tuning, adaptive tolerance planning, and replicated Sobol scrambling. Adaptive MLMC is now a very fast CPU reference path on the tracked benchmark but needs better default calibration, while replicated MLQMC is faster than Asian step-wise and materially lower-error in the current run.
+
+What we should not overclaim yet:
+
+- structured sampling generation is now competitive and pricing overhead is much lower, but full structured-pricing paths still trail the pseudorandom CPU baseline and the first pricing stderr-ratio comparison is roughly neutral rather than a clear convergence win
+- MLMC and MLQMC are CPU-reference only, and their tolerance planning is pilot-estimated rather than broadly calibrated across workload families
+- native CUDA execution is not implemented yet
+- planner calibration is improving, but `87.5%` measured local accuracy is not broad production-grade backend intelligence yet
 
 ## Next Steps
 
-- implement first NVIDIA CUDA kernels for the core workload path
-- broaden Apple Metal native coverage beyond the current GBM option family
+- broaden Metal beyond the current GBM option family
+- add basket-option coverage and broaden QMC quality comparisons beyond standard-error ratios into realized-error studies where analytic references exist
+- calibrate MLMC and MLQMC tolerance planning against realized estimator error across more workloads
 - keep calibrating planner recommendations from measured backend winners across more workload classes
-- expand Apple-specific planner heuristics beyond the current benchmark-calibrated medium-large workload band
 - expand competitor matrix to JAX/CuPy/PyTorch where environment allows
 - extend CI from CPU validation to native hardware validation once dedicated runners exist
+- keep native CUDA launch deferred while CPU, Metal, and multilevel-method quality are the active focus
