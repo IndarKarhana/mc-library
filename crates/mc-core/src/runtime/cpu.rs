@@ -82,6 +82,7 @@ pub struct StandardNormalDiagnostics {
 #[serde(rename_all = "snake_case")]
 pub enum PricingWorkloadFamily {
     EuropeanCall,
+    HestonEuropeanCall,
     ArithmeticAsianCall,
     DownAndOutCall,
     BasketCall,
@@ -128,6 +129,20 @@ pub struct AnalyticPricingComparison {
     pub abs_error_reduction_vs_pseudorandom: f64,
     pub normal_diagnostics: StandardNormalDiagnostics,
     pub guidance: StructuredSamplingGuidance,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HestonReferenceComparison {
+    pub reference_name: String,
+    pub paths: usize,
+    pub steps: usize,
+    pub reference_price: f64,
+    pub simulated_price: f64,
+    pub stderr: f64,
+    pub error: f64,
+    pub abs_error: f64,
+    pub error_stderr_units: f64,
     pub warnings: Vec<String>,
 }
 
@@ -372,6 +387,47 @@ pub fn compare_european_call_realized_error_cpu(
         baseline,
         structured,
     )
+}
+
+pub fn compare_heston_black_scholes_limit_cpu(
+    cfg: &HestonEuropeanCallConfig,
+) -> HestonReferenceComparison {
+    let result = heston_european_call_price_mc_cpu(cfg);
+    let reference_vol = cfg.v0.max(0.0).sqrt();
+    let reference_price =
+        black_scholes_european_call_price(cfg.s0, cfg.k, cfg.r, reference_vol, cfg.t);
+    let error = result.price - reference_price;
+    let abs_error = error.abs();
+    let error_stderr_units = if result.stderr > 0.0 {
+        error / result.stderr
+    } else if error == 0.0 {
+        0.0
+    } else {
+        f64::INFINITY.copysign(error)
+    };
+    let mut warnings = Vec::new();
+
+    if cfg.vol_of_vol != 0.0 {
+        warnings.push("Black-Scholes reference is exact only when vol_of_vol is zero".to_string());
+    }
+    if (cfg.theta - cfg.v0).abs() > f64::EPSILON {
+        warnings.push(
+            "Black-Scholes reference assumes theta equals v0 so variance is constant".to_string(),
+        );
+    }
+
+    HestonReferenceComparison {
+        reference_name: "black_scholes_vol_of_vol_zero_limit".to_string(),
+        paths: cfg.n_paths,
+        steps: cfg.n_steps,
+        reference_price,
+        simulated_price: result.price,
+        stderr: result.stderr,
+        error,
+        abs_error,
+        error_stderr_units,
+        warnings,
+    }
 }
 
 pub fn compare_arithmetic_asian_sampling_quality_cpu(
@@ -891,6 +947,45 @@ pub struct EuropeanCallResult {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct HestonEuropeanCallConfig {
+    pub s0: f64,
+    pub k: f64,
+    pub r: f64,
+    pub v0: f64,
+    pub kappa: f64,
+    pub theta: f64,
+    pub vol_of_vol: f64,
+    pub rho: f64,
+    pub t: f64,
+    pub n_paths: usize,
+    pub n_steps: usize,
+    pub seed: u64,
+    pub n_threads: usize,
+    pub technique: MonteCarloTechnique,
+}
+
+impl Default for HestonEuropeanCallConfig {
+    fn default() -> Self {
+        Self {
+            s0: 100.0,
+            k: 100.0,
+            r: 0.03,
+            v0: 0.04,
+            kappa: 1.5,
+            theta: 0.04,
+            vol_of_vol: 0.3,
+            rho: -0.6,
+            t: 1.0,
+            n_paths: 100_000,
+            n_steps: 252,
+            seed: 42,
+            n_threads: 0,
+            technique: MonteCarloTechnique::Standard,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct ArithmeticAsianCallConfig {
     pub s0: f64,
     pub k: f64,
@@ -1142,6 +1237,8 @@ impl Default for BasketCallConfig {
 }
 
 pub type DownAndOutCallResult = EuropeanCallResult;
+
+pub type HestonEuropeanCallResult = EuropeanCallResult;
 
 pub type LookbackCallResult = EuropeanCallResult;
 
@@ -1932,6 +2029,126 @@ impl EuropeanCallPricer {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HestonEuropeanCallPricer {
+    config: HestonEuropeanCallConfig,
+}
+
+impl Default for HestonEuropeanCallPricer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HestonEuropeanCallPricer {
+    pub fn new() -> Self {
+        Self {
+            config: HestonEuropeanCallConfig::default(),
+        }
+    }
+
+    pub fn from_config(config: HestonEuropeanCallConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn s0(mut self, value: f64) -> Self {
+        self.config.s0 = value;
+        self
+    }
+
+    pub fn strike(mut self, value: f64) -> Self {
+        self.config.k = value;
+        self
+    }
+
+    pub fn rate(mut self, value: f64) -> Self {
+        self.config.r = value;
+        self
+    }
+
+    pub fn initial_variance(mut self, value: f64) -> Self {
+        self.config.v0 = value;
+        self
+    }
+
+    pub fn mean_reversion(mut self, value: f64) -> Self {
+        self.config.kappa = value;
+        self
+    }
+
+    pub fn long_run_variance(mut self, value: f64) -> Self {
+        self.config.theta = value;
+        self
+    }
+
+    pub fn vol_of_vol(mut self, value: f64) -> Self {
+        self.config.vol_of_vol = value;
+        self
+    }
+
+    pub fn correlation(mut self, value: f64) -> Self {
+        self.config.rho = value;
+        self
+    }
+
+    pub fn maturity(mut self, value: f64) -> Self {
+        self.config.t = value;
+        self
+    }
+
+    pub fn paths(mut self, value: usize) -> Self {
+        self.config.n_paths = value;
+        self
+    }
+
+    pub fn steps(mut self, value: usize) -> Self {
+        self.config.n_steps = value;
+        self
+    }
+
+    pub fn seed(mut self, value: u64) -> Self {
+        self.config.seed = value;
+        self
+    }
+
+    pub fn threads(mut self, value: usize) -> Self {
+        self.config.n_threads = value;
+        self
+    }
+
+    pub fn technique(mut self, value: MonteCarloTechnique) -> Self {
+        self.config.technique = value;
+        self
+    }
+
+    pub fn standard(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Standard;
+        self
+    }
+
+    pub fn antithetic(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Antithetic;
+        self
+    }
+
+    pub fn control_variate(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::ControlVariate;
+        self
+    }
+
+    pub fn config(&self) -> &HestonEuropeanCallConfig {
+        &self.config
+    }
+
+    pub fn price(&self) -> HestonEuropeanCallResult {
+        heston_european_call_price_mc_cpu(&self.config)
+    }
+
+    pub fn black_scholes_limit_check(&self) -> HestonReferenceComparison {
+        compare_heston_black_scholes_limit_cpu(&self.config)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MonteCarloRng {
     state: u64,
@@ -2002,6 +2219,18 @@ pub fn european_call_price_mc_cpu_with_method(
             european_call_price_mc_cpu_terminal(cfg)
         }
         EuropeanCallMethod::StepwisePaths => european_call_price_mc_cpu_stepwise(cfg),
+    }
+}
+
+pub fn heston_european_call_price_mc_cpu(
+    cfg: &HestonEuropeanCallConfig,
+) -> HestonEuropeanCallResult {
+    validate_heston_european_call_config(cfg);
+
+    match cfg.technique {
+        MonteCarloTechnique::Standard => heston_european_call_price_mc_standard(cfg),
+        MonteCarloTechnique::Antithetic => heston_european_call_price_mc_antithetic(cfg),
+        MonteCarloTechnique::ControlVariate => heston_european_call_price_mc_control_variate(cfg),
     }
 }
 
@@ -2551,6 +2780,19 @@ fn validate_lookback_call_config(cfg: &LookbackCallConfig) {
     assert!(cfg.s0 > 0.0, "s0 must be > 0");
     assert!(cfg.k >= 0.0, "k must be >= 0");
     assert!(cfg.sigma >= 0.0, "sigma must be >= 0");
+    assert!(cfg.t > 0.0, "t must be > 0");
+}
+
+fn validate_heston_european_call_config(cfg: &HestonEuropeanCallConfig) {
+    assert!(cfg.n_paths > 0, "n_paths must be > 0");
+    assert!(cfg.n_steps > 0, "n_steps must be > 0");
+    assert!(cfg.s0 > 0.0, "s0 must be > 0");
+    assert!(cfg.k >= 0.0, "k must be >= 0");
+    assert!(cfg.v0 >= 0.0, "v0 must be >= 0");
+    assert!(cfg.kappa >= 0.0, "kappa must be >= 0");
+    assert!(cfg.theta >= 0.0, "theta must be >= 0");
+    assert!(cfg.vol_of_vol >= 0.0, "vol_of_vol must be >= 0");
+    assert!((-1.0..=1.0).contains(&cfg.rho), "rho must be in [-1, 1]");
     assert!(cfg.t > 0.0, "t must be > 0");
 }
 
@@ -5711,6 +5953,286 @@ fn lookback_call_price_mc_stepwise_control_variate(cfg: &LookbackCallConfig) -> 
             vol_dt,
             discount,
         )
+    };
+
+    summarize_control_variate(moments, cfg.s0)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HestonStepParams {
+    log_s0: f64,
+    strike: f64,
+    v0: f64,
+    kappa: f64,
+    theta: f64,
+    vol_of_vol: f64,
+    rho: f64,
+    rho_perp: f64,
+    dt: f64,
+    sqrt_dt: f64,
+    n_steps: usize,
+    rate: f64,
+    discount: f64,
+}
+
+fn heston_params(cfg: &HestonEuropeanCallConfig) -> HestonStepParams {
+    HestonStepParams {
+        log_s0: cfg.s0.ln(),
+        strike: cfg.k,
+        v0: cfg.v0,
+        kappa: cfg.kappa,
+        theta: cfg.theta,
+        vol_of_vol: cfg.vol_of_vol,
+        rho: cfg.rho,
+        rho_perp: (1.0 - cfg.rho * cfg.rho).max(0.0).sqrt(),
+        dt: cfg.t / cfg.n_steps as f64,
+        sqrt_dt: (cfg.t / cfg.n_steps as f64).sqrt(),
+        n_steps: cfg.n_steps,
+        rate: cfg.r,
+        discount: (-cfg.r * cfg.t).exp(),
+    }
+}
+
+fn heston_path_terminal(params: HestonStepParams, rng: &mut MonteCarloRng, sign: f64) -> f64 {
+    let mut log_s_t = params.log_s0;
+    let mut variance = params.v0;
+
+    for _ in 0..params.n_steps {
+        let z_var = sign * rng.standard_normal();
+        let z_independent = sign * rng.standard_normal();
+        let variance_pos = variance.max(0.0);
+        let z_price = params.rho * z_var + params.rho_perp * z_independent;
+
+        log_s_t += (params.rate - 0.5 * variance_pos) * params.dt
+            + variance_pos.sqrt() * params.sqrt_dt * z_price;
+        variance = variance
+            + params.kappa * (params.theta - variance_pos) * params.dt
+            + params.vol_of_vol * variance_pos.sqrt() * params.sqrt_dt * z_var;
+        variance = variance.max(0.0);
+    }
+
+    log_s_t.exp()
+}
+
+fn heston_discounted_payoff(
+    params: HestonStepParams,
+    rng: &mut MonteCarloRng,
+    sign: f64,
+) -> (f64, f64) {
+    let s_t = heston_path_terminal(params, rng, sign);
+    (
+        (s_t - params.strike).max(0.0) * params.discount,
+        s_t * params.discount,
+    )
+}
+
+fn simulate_heston_chunk(seed: u64, n_paths: usize, params: HestonStepParams) -> (f64, f64) {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+
+    for _ in 0..n_paths {
+        let (payoff, _) = heston_discounted_payoff(params, &mut rng, 1.0);
+        payoff_sum += payoff;
+        payoff_sq_sum += payoff * payoff;
+    }
+
+    (payoff_sum, payoff_sq_sum)
+}
+
+fn simulate_heston_antithetic_chunk(
+    seed: u64,
+    pair_count: usize,
+    params: HestonStepParams,
+) -> (f64, f64) {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+
+    for _ in 0..pair_count {
+        let mut log_a = params.log_s0;
+        let mut log_b = params.log_s0;
+        let mut var_a = params.v0;
+        let mut var_b = params.v0;
+
+        for _ in 0..params.n_steps {
+            let z_var = rng.standard_normal();
+            let z_independent = rng.standard_normal();
+
+            let var_a_pos = var_a.max(0.0);
+            let z_price_a = params.rho * z_var + params.rho_perp * z_independent;
+            log_a += (params.rate - 0.5 * var_a_pos) * params.dt
+                + var_a_pos.sqrt() * params.sqrt_dt * z_price_a;
+            var_a = var_a
+                + params.kappa * (params.theta - var_a_pos) * params.dt
+                + params.vol_of_vol * var_a_pos.sqrt() * params.sqrt_dt * z_var;
+            var_a = var_a.max(0.0);
+
+            let z_var_b = -z_var;
+            let z_independent_b = -z_independent;
+            let var_b_pos = var_b.max(0.0);
+            let z_price_b = params.rho * z_var_b + params.rho_perp * z_independent_b;
+            log_b += (params.rate - 0.5 * var_b_pos) * params.dt
+                + var_b_pos.sqrt() * params.sqrt_dt * z_price_b;
+            var_b = var_b
+                + params.kappa * (params.theta - var_b_pos) * params.dt
+                + params.vol_of_vol * var_b_pos.sqrt() * params.sqrt_dt * z_var_b;
+            var_b = var_b.max(0.0);
+        }
+
+        let payoff_a = (log_a.exp() - params.strike).max(0.0) * params.discount;
+        let payoff_b = (log_b.exp() - params.strike).max(0.0) * params.discount;
+        let block_estimate = 0.5 * (payoff_a + payoff_b);
+        block_sum += block_estimate;
+        block_sq_sum += block_estimate * block_estimate;
+    }
+
+    (block_sum, block_sq_sum)
+}
+
+fn simulate_heston_control_variate_chunk(
+    seed: u64,
+    n_paths: usize,
+    params: HestonStepParams,
+) -> ControlVariateMoments {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut moments = ControlVariateMoments::default();
+
+    for _ in 0..n_paths {
+        let (payoff, discounted_terminal) = heston_discounted_payoff(params, &mut rng, 1.0);
+        moments.record(payoff, discounted_terminal);
+    }
+
+    moments
+}
+
+fn simulate_heston_parallel(
+    cfg: &HestonEuropeanCallConfig,
+    thread_count: usize,
+    params: HestonStepParams,
+) -> (f64, f64) {
+    let base_chunk = cfg.n_paths / thread_count;
+    let remainder = cfg.n_paths % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let n_paths_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        handles.push(thread::spawn(move || {
+            simulate_heston_chunk(seed, n_paths_chunk, params)
+        }));
+    }
+
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+    for handle in handles {
+        let (chunk_sum, chunk_sq_sum) = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        payoff_sum += chunk_sum;
+        payoff_sq_sum += chunk_sq_sum;
+    }
+
+    (payoff_sum, payoff_sq_sum)
+}
+
+fn simulate_heston_antithetic_parallel(
+    cfg: &HestonEuropeanCallConfig,
+    thread_count: usize,
+    params: HestonStepParams,
+) -> (f64, f64) {
+    let pair_count = cfg.n_paths.div_ceil(2);
+    let base_chunk = pair_count / thread_count;
+    let remainder = pair_count % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let pair_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        handles.push(thread::spawn(move || {
+            simulate_heston_antithetic_chunk(seed, pair_chunk, params)
+        }));
+    }
+
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+    for handle in handles {
+        let (chunk_sum, chunk_sq_sum) = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        block_sum += chunk_sum;
+        block_sq_sum += chunk_sq_sum;
+    }
+
+    (block_sum, block_sq_sum)
+}
+
+fn simulate_heston_control_variate_parallel(
+    cfg: &HestonEuropeanCallConfig,
+    thread_count: usize,
+    params: HestonStepParams,
+) -> ControlVariateMoments {
+    let base_chunk = cfg.n_paths / thread_count;
+    let remainder = cfg.n_paths % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let n_paths_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        handles.push(thread::spawn(move || {
+            simulate_heston_control_variate_chunk(seed, n_paths_chunk, params)
+        }));
+    }
+
+    let mut moments = ControlVariateMoments::default();
+    for handle in handles {
+        let chunk = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        moments.merge(chunk);
+    }
+
+    moments
+}
+
+fn heston_european_call_price_mc_standard(
+    cfg: &HestonEuropeanCallConfig,
+) -> HestonEuropeanCallResult {
+    let params = heston_params(cfg);
+    let thread_count = resolved_thread_count(cfg.n_threads);
+    let (payoff_sum, payoff_sq_sum) = if thread_count <= 1 || cfg.n_paths < thread_count * 2_000 {
+        simulate_heston_chunk(cfg.seed, cfg.n_paths, params)
+    } else {
+        simulate_heston_parallel(cfg, thread_count, params)
+    };
+
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+}
+
+fn heston_european_call_price_mc_antithetic(
+    cfg: &HestonEuropeanCallConfig,
+) -> HestonEuropeanCallResult {
+    let params = heston_params(cfg);
+    let pair_count = cfg.n_paths.div_ceil(2);
+    let thread_count = resolved_thread_count(cfg.n_threads);
+    let (block_sum, block_sq_sum) = if thread_count <= 1 || pair_count < thread_count * 2_000 {
+        simulate_heston_antithetic_chunk(cfg.seed, pair_count, params)
+    } else {
+        simulate_heston_antithetic_parallel(cfg, thread_count, params)
+    };
+
+    summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+}
+
+fn heston_european_call_price_mc_control_variate(
+    cfg: &HestonEuropeanCallConfig,
+) -> HestonEuropeanCallResult {
+    let params = heston_params(cfg);
+    let thread_count = resolved_thread_count(cfg.n_threads);
+    let moments = if thread_count <= 1 || cfg.n_paths < thread_count * 2_000 {
+        simulate_heston_control_variate_chunk(cfg.seed, cfg.n_paths, params)
+    } else {
+        simulate_heston_control_variate_parallel(cfg, thread_count, params)
     };
 
     summarize_control_variate(moments, cfg.s0)

@@ -72,7 +72,7 @@ Deliverables:
 - `done` Add QuantLib competitor benchmark harness for overlapping option workloads.
 - `done` Add basket option CPU runtime and benchmark.
 - `done` Add lookback option CPU runtime and benchmark.
-- `todo` Add Heston path simulation with reference validation.
+- `done` Add Heston path simulation with reference validation.
 - `todo` Add Greeks: bump-and-revalue first, then pathwise and likelihood-ratio estimators.
 - `todo` Add product/model capability catalog with assumptions and unsupported states.
 - `todo` Add accuracy fixtures against analytic or semi-analytic references where available.
@@ -84,7 +84,7 @@ Definition of done:
 
 Next action:
 
-- Add Heston path simulation with reference validation and the same explicit QuantLib comparison or unavailable-row pattern.
+- Add Greeks: bump-and-revalue first for selected European, path-dependent, basket, and Heston workloads, then pathwise and likelihood-ratio estimators where assumptions are valid.
 
 ## Phase 3: Become The Most User-Friendly MC Library
 

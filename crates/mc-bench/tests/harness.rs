@@ -104,6 +104,16 @@ fn python_competitor_script_reports_quantlib_lane() {
         .expect("QuantLib lookback lane should be reported as available or unavailable");
 
     assert!(quantlib_lookback["available"].is_boolean());
+
+    let quantlib_heston = results
+        .iter()
+        .find(|entry| {
+            entry["library"].as_str() == Some("quantlib")
+                && entry["methodology"].as_str() == Some("heston_analytic_reference_quantlib")
+        })
+        .expect("QuantLib Heston lane should be reported as available or unavailable");
+
+    assert!(quantlib_heston["available"].is_boolean());
 }
 
 #[test]
@@ -192,6 +202,24 @@ fn rust_mc_benchmark_is_present() {
     assert_eq!(
         lookback_quality.metric_name.as_deref(),
         Some("stderr_ratio_vs_pseudorandom")
+    );
+
+    let heston = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_heston_european_call_rust")
+        .expect("Heston benchmark should be present");
+    assert!(heston.total_runtime_ms > 0.0);
+    assert_eq!(heston.metric_name.as_deref(), Some("price_estimate"));
+
+    let heston_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_heston_black_scholes_limit_quality")
+        .expect("Heston Black-Scholes-limit quality benchmark should be present");
+    assert_eq!(
+        heston_quality.metric_name.as_deref(),
+        Some("abs_error_vs_black_scholes")
     );
 
     let uq = report

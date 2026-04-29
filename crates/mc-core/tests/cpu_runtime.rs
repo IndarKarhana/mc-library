@@ -3,18 +3,19 @@ use mc_core::{
     basket_call_price_mc_cpu, black_scholes_european_call_price,
     compare_arithmetic_asian_sampling_quality_cpu, compare_basket_call_sampling_quality_cpu,
     compare_down_and_out_sampling_quality_cpu, compare_european_call_realized_error_cpu,
-    compare_european_call_sampling_quality_cpu, diagnose_standard_normals_cpu,
-    down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
+    compare_european_call_sampling_quality_cpu, compare_heston_black_scholes_limit_cpu,
+    diagnose_standard_normals_cpu, down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
-    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, lookback_call_price_mc_cpu,
-    monte_carlo_method_capabilities, solve_arithmetic_asian_mlmc_tolerance_cpu,
-    structured_sampling_guidance_cpu, tune_arithmetic_asian_mlmc_allocation_cpu,
-    ArithmeticAsianCallConfig, ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig,
-    ArithmeticAsianMlmcPricer, ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport,
-    BasketCallConfig, BasketCallPricer, DownAndOutCallConfig, DownAndOutCallPricer,
-    EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer, GaussianUncertaintyConfig,
-    LookbackCallConfig, LookbackCallPricer, MonteCarloRng, MonteCarloTechnique,
-    PricingWorkloadFamily, SamplingMethod,
+    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu,
+    heston_european_call_price_mc_cpu, lookback_call_price_mc_cpu, monte_carlo_method_capabilities,
+    solve_arithmetic_asian_mlmc_tolerance_cpu, structured_sampling_guidance_cpu,
+    tune_arithmetic_asian_mlmc_allocation_cpu, ArithmeticAsianCallConfig,
+    ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcPricer,
+    ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport, BasketCallConfig, BasketCallPricer,
+    DownAndOutCallConfig, DownAndOutCallPricer, EuropeanCallConfig, EuropeanCallMethod,
+    EuropeanCallPricer, GaussianUncertaintyConfig, HestonEuropeanCallConfig,
+    HestonEuropeanCallPricer, LookbackCallConfig, LookbackCallPricer, MonteCarloRng,
+    MonteCarloTechnique, PricingWorkloadFamily, SamplingMethod,
 };
 
 #[test]
@@ -1158,6 +1159,69 @@ fn lookback_pricer_builder_supports_expressive_configuration() {
 
     assert!(result.price >= 0.0);
     assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn heston_european_call_is_deterministic_for_same_seed() {
+    let cfg = HestonEuropeanCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 13_001,
+        ..HestonEuropeanCallConfig::default()
+    };
+
+    let r1 = heston_european_call_price_mc_cpu(&cfg);
+    let r2 = heston_european_call_price_mc_cpu(&cfg);
+
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn heston_black_scholes_limit_matches_reference_price() {
+    let sigma = 0.2;
+    let cfg = HestonEuropeanCallConfig {
+        v0: sigma * sigma,
+        theta: sigma * sigma,
+        vol_of_vol: 0.0,
+        rho: 0.0,
+        n_paths: 150_000,
+        n_steps: 64,
+        seed: 13_002,
+        n_threads: 4,
+        ..HestonEuropeanCallConfig::default()
+    };
+
+    let comparison = compare_heston_black_scholes_limit_cpu(&cfg);
+
+    assert_eq!(
+        comparison.reference_name,
+        "black_scholes_vol_of_vol_zero_limit"
+    );
+    assert!(comparison.abs_error <= comparison.stderr * 4.0 + 0.05);
+    assert!(comparison.error_stderr_units.abs() <= 4.0 || comparison.abs_error <= 0.05);
+}
+
+#[test]
+fn heston_pricer_builder_supports_expressive_configuration() {
+    let result = HestonEuropeanCallPricer::new()
+        .s0(100.0)
+        .strike(100.0)
+        .rate(0.03)
+        .initial_variance(0.04)
+        .long_run_variance(0.04)
+        .mean_reversion(1.5)
+        .vol_of_vol(0.3)
+        .correlation(-0.6)
+        .maturity(1.0)
+        .paths(20_000)
+        .steps(32)
+        .seed(13_003)
+        .control_variate()
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+    assert!(result.price.is_finite());
 }
 
 #[test]

@@ -100,6 +100,27 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         "mc_cpu_lookback_call_rust gate failed: expected benchmark presence and positive runtime"
     );
 
+    let heston = find_metric("mc_cpu_heston_european_call_rust", &report);
+    assert!(
+        heston.total_runtime_ms > 0.0,
+        "mc_cpu_heston_european_call_rust gate failed: expected benchmark presence and positive runtime"
+    );
+    assert_eq!(heston.metric_name.as_deref(), Some("price_estimate"));
+
+    let heston_quality = find_metric("mc_cpu_heston_black_scholes_limit_quality", &report);
+    assert_eq!(
+        heston_quality.metric_name.as_deref(),
+        Some("abs_error_vs_black_scholes")
+    );
+    let heston_abs_error = heston_quality
+        .metric_value
+        .expect("Heston Black-Scholes-limit benchmark must contain metric_value");
+    assert!(
+        heston_abs_error.is_finite() && heston_abs_error >= 0.0 && heston_abs_error < 0.5,
+        "Heston Black-Scholes-limit gate failed: abs_error_vs_black_scholes={} expected finite in [0, 0.5)",
+        heston_abs_error
+    );
+
     let qmc_quality = find_metric(
         "mc_cpu_european_call_rust_randomized_halton_control_variate_quality",
         &report,

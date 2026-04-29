@@ -415,6 +415,67 @@ def benchmark_quantlib_fixed_strike_lookback(
     )
 
 
+def benchmark_quantlib_heston_european(
+    n_paths: int, n_steps: int, repeats: int, seed: int
+) -> LibraryResult:
+    import QuantLib as ql
+
+    _ = (n_paths, n_steps, seed)
+    day_count = ql.Actual365Fixed()
+    evaluation_date = ql.Date(2, ql.January, 2023)
+    maturity_date = ql.Date(2, ql.January, 2024)
+    ql.Settings.instance().evaluationDate = evaluation_date
+
+    spot = ql.QuoteHandle(ql.SimpleQuote(100.0))
+    dividend_curve = ql.YieldTermStructureHandle(
+        ql.FlatForward(evaluation_date, 0.0, day_count)
+    )
+    risk_free_curve = ql.YieldTermStructureHandle(
+        ql.FlatForward(evaluation_date, 0.03, day_count)
+    )
+    process = ql.HestonProcess(
+        risk_free_curve,
+        dividend_curve,
+        spot,
+        0.04,
+        1.5,
+        0.04,
+        0.3,
+        -0.6,
+    )
+    model = ql.HestonModel(process)
+    payoff = ql.PlainVanillaPayoff(ql.Option.Call, 100.0)
+    exercise = ql.EuropeanExercise(maturity_date)
+
+    times: list[float] = []
+    prices: list[float] = []
+
+    for _ in range(repeats):
+        option = ql.VanillaOption(payoff, exercise)
+
+        start = time.perf_counter()
+        engine = ql.AnalyticHestonEngine(model)
+        option.setPricingEngine(engine)
+        price = float(option.NPV())
+        elapsed = (time.perf_counter() - start) * 1000.0
+
+        times.append(elapsed)
+        prices.append(price)
+
+    return LibraryResult(
+        library="quantlib",
+        methodology="heston_analytic_reference_quantlib",
+        available=True,
+        runtime_ms=sum(times) / len(times),
+        price=sum(prices) / len(prices),
+        stderr=None,
+        note=(
+            "QuantLib-Python AnalyticHestonEngine reference; this is an analytic "
+            "reference lane, not a Monte Carlo path-runtime timing."
+        ),
+    )
+
+
 def unavailable(name: str, methodology: str | None, note: str) -> LibraryResult:
     return LibraryResult(
         library=name,
@@ -484,6 +545,20 @@ def main() -> int:
                     f"benchmark failed: {type(exc).__name__}: {exc}",
                 )
             )
+        try:
+            results.append(
+                benchmark_quantlib_heston_european(
+                    args.paths, args.steps, args.repeats, args.seed
+                )
+            )
+        except Exception as exc:
+            results.append(
+                unavailable(
+                    "quantlib",
+                    "heston_analytic_reference_quantlib",
+                    f"benchmark failed: {type(exc).__name__}: {exc}",
+                )
+            )
     else:
         results.append(
             unavailable(
@@ -496,6 +571,13 @@ def main() -> int:
             unavailable(
                 "quantlib",
                 "lookback_fixed_strike_stepwise_quantlib_mc",
+                "QuantLib-Python package not installed",
+            )
+        )
+        results.append(
+            unavailable(
+                "quantlib",
+                "heston_analytic_reference_quantlib",
                 "QuantLib-Python package not installed",
             )
         )

@@ -218,6 +218,28 @@ Practical notes:
 - current quality comparison uses empirical stderr ratios, not a closed-form continuous-monitoring lookback reference
 - native Metal execution is not implemented for lookback yet; CPU is the correctness reference
 
+### 0.9. Heston Stochastic-Volatility Pricing
+
+Status:
+
+- supported now as a CPU reference workload through `heston_european_call_price_mc_cpu`
+- benchmarked as a European call under the Heston stochastic-volatility model with full-truncation Euler variance stepping
+- includes a Black-Scholes-limit validation path through `compare_heston_black_scholes_limit_cpu`
+- QuantLib competitor reporting is explicit through the Python benchmark harness when QuantLib-Python is installed
+
+Why it matters:
+
+- adds the first non-GBM single-asset diffusion model
+- improves breadth against QuantLib-style model coverage while keeping execution and validation inspectable
+- gives agents a clear reference-check workflow: run Heston normally, then verify the zero-vol-of-vol constant-variance limit against Black-Scholes
+
+Practical notes:
+
+- the Black-Scholes reference is exact only when `vol_of_vol = 0` and `theta = v0`
+- default Heston runs include discretization error, so timing and price rows should not be treated as analytic Heston validation
+- the QuantLib lane currently uses `AnalyticHestonEngine` as a reference comparison when available; it is labeled as analytic, not a Monte Carlo path-runtime competitor
+- native Metal and CUDA execution are not implemented for Heston yet; CPU is the correctness reference
+
 ### 1. Multilevel Monte Carlo
 
 Status:
