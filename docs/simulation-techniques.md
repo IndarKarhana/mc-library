@@ -53,7 +53,7 @@ Current implementation:
 
 - uses discounted terminal stock as the control variate
 - leverages the known expectation `E[e^{-rT} S_T] = S0`
-- currently implemented for European, arithmetic Asian, and down-and-out call paths
+- currently implemented for European, arithmetic Asian, down-and-out, and fixed-strike lookback call paths
 - currently implemented on both CPU reference paths and the native Apple Metal path where supported
 
 ### 4. First randomized-QMC surface via randomized Halton
@@ -79,7 +79,7 @@ Practical notes:
 
 Status:
 
-- supported now on CPU for the current European, arithmetic Asian, down-and-out, and two-asset basket workload families
+- supported now on CPU for the current European, arithmetic Asian, down-and-out, fixed-strike lookback, and two-asset basket workload families
 - benchmarked for the tracked European step-wise workload
 
 Why it matters:
@@ -197,6 +197,26 @@ Practical notes:
 
 - current support is a two-asset terminal GBM basket call, not a general basket-product framework
 - realized-error validation is still needed before claiming a QMC convergence win for basket options
+
+### 0.75. Fixed-Strike Lookback Pricing
+
+Status:
+
+- supported now as a CPU reference workload through `lookback_call_price_mc_cpu`
+- benchmarked as a discretely monitored fixed-strike lookback call under GBM
+- QuantLib competitor reporting is explicit through the Python benchmark harness when QuantLib-Python is installed
+
+Why it matters:
+
+- adds a path-dependent payoff whose running maximum matters, broadening beyond terminal, average, and barrier payoffs
+- gives QMC and Brownian-bridge path construction another monitored-path workload to stress
+- provides a better bridge toward QuantLib-style exotic-option comparisons without claiming QuantLib breadth
+
+Practical notes:
+
+- maximum-so-far starts at spot and is monitored on simulated steps
+- current quality comparison uses empirical stderr ratios, not a closed-form continuous-monitoring lookback reference
+- native Metal execution is not implemented for lookback yet; CPU is the correctness reference
 
 ### 1. Multilevel Monte Carlo
 

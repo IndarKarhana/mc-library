@@ -6,13 +6,14 @@ use mc_core::{
     compare_european_call_sampling_quality_cpu, diagnose_standard_normals_cpu,
     down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
-    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, monte_carlo_method_capabilities,
-    solve_arithmetic_asian_mlmc_tolerance_cpu, structured_sampling_guidance_cpu,
-    tune_arithmetic_asian_mlmc_allocation_cpu, ArithmeticAsianCallConfig,
-    ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcPricer,
-    ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport, BasketCallConfig, BasketCallPricer,
-    DownAndOutCallConfig, DownAndOutCallPricer, EuropeanCallConfig, EuropeanCallMethod,
-    EuropeanCallPricer, GaussianUncertaintyConfig, MonteCarloRng, MonteCarloTechnique,
+    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, lookback_call_price_mc_cpu,
+    monte_carlo_method_capabilities, solve_arithmetic_asian_mlmc_tolerance_cpu,
+    structured_sampling_guidance_cpu, tune_arithmetic_asian_mlmc_allocation_cpu,
+    ArithmeticAsianCallConfig, ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig,
+    ArithmeticAsianMlmcPricer, ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport,
+    BasketCallConfig, BasketCallPricer, DownAndOutCallConfig, DownAndOutCallPricer,
+    EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer, GaussianUncertaintyConfig,
+    LookbackCallConfig, LookbackCallPricer, MonteCarloRng, MonteCarloTechnique,
     PricingWorkloadFamily, SamplingMethod,
 };
 
@@ -1079,6 +1080,78 @@ fn down_and_out_pricer_builder_supports_expressive_configuration() {
         .paths(50_000)
         .steps(64)
         .seed(910)
+        .control_variate()
+        .latin_hypercube()
+        .price();
+
+    assert!(result.price >= 0.0);
+    assert!(result.stderr >= 0.0);
+}
+
+#[test]
+fn lookback_call_is_deterministic_for_same_seed() {
+    let cfg = LookbackCallConfig {
+        n_paths: 50_000,
+        n_steps: 64,
+        seed: 12_345,
+        ..LookbackCallConfig::default()
+    };
+
+    let r1 = lookback_call_price_mc_cpu(&cfg);
+    let r2 = lookback_call_price_mc_cpu(&cfg);
+
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn lookback_call_structured_sampling_is_deterministic() {
+    let cfg = LookbackCallConfig {
+        n_paths: 4_096,
+        n_steps: 32,
+        seed: 12_346,
+        sampling: SamplingMethod::ScrambledSobolBrownianBridge,
+        ..LookbackCallConfig::default()
+    };
+
+    let r1 = lookback_call_price_mc_cpu(&cfg);
+    let r2 = lookback_call_price_mc_cpu(&cfg);
+
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn lookback_call_outputs_sane_values() {
+    let cfg = LookbackCallConfig {
+        n_paths: 80_000,
+        n_steps: 64,
+        seed: 12_347,
+        ..LookbackCallConfig::default()
+    };
+
+    let lookback = lookback_call_price_mc_cpu(&cfg);
+    let european = european_call_price_mc_cpu_stepwise(&EuropeanCallConfig {
+        n_paths: cfg.n_paths,
+        n_steps: cfg.n_steps,
+        seed: cfg.seed,
+        ..EuropeanCallConfig::default()
+    });
+
+    assert!(lookback.price >= european.price);
+    assert!(lookback.stderr >= 0.0);
+    assert!(lookback.price.is_finite());
+}
+
+#[test]
+fn lookback_pricer_builder_supports_expressive_configuration() {
+    let result = LookbackCallPricer::new()
+        .s0(100.0)
+        .strike(100.0)
+        .rate(0.03)
+        .volatility(0.2)
+        .maturity(1.0)
+        .paths(20_000)
+        .steps(32)
+        .seed(12_348)
         .control_variate()
         .latin_hypercube()
         .price();

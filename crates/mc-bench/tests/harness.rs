@@ -93,6 +93,17 @@ fn python_competitor_script_reports_quantlib_lane() {
         quantlib["methodology"].as_str(),
         Some("stepwise_paths_quantlib_mceuropean")
     );
+
+    let quantlib_lookback = results
+        .iter()
+        .find(|entry| {
+            entry["library"].as_str() == Some("quantlib")
+                && entry["methodology"].as_str()
+                    == Some("lookback_fixed_strike_stepwise_quantlib_mc")
+        })
+        .expect("QuantLib lookback lane should be reported as available or unavailable");
+
+    assert!(quantlib_lookback["available"].is_boolean());
 }
 
 #[test]
@@ -162,6 +173,24 @@ fn rust_mc_benchmark_is_present() {
         .expect("basket QMC pricing quality benchmark should be present");
     assert_eq!(
         basket_quality.metric_name.as_deref(),
+        Some("stderr_ratio_vs_pseudorandom")
+    );
+
+    let lookback = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_lookback_call_rust")
+        .expect("lookback benchmark should be present");
+    assert!(lookback.total_runtime_ms > 0.0);
+    assert_eq!(lookback.metric_name.as_deref(), Some("price_estimate"));
+
+    let lookback_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_qmc_quality_lookback_latin_hypercube")
+        .expect("lookback QMC pricing quality benchmark should be present");
+    assert_eq!(
+        lookback_quality.metric_name.as_deref(),
         Some("stderr_ratio_vs_pseudorandom")
     );
 

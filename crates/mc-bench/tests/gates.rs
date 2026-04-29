@@ -94,6 +94,12 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         "mc_cpu_down_and_out_call_rust gate failed: expected benchmark presence and positive runtime"
     );
 
+    let lookback = find_metric("mc_cpu_lookback_call_rust", &report);
+    assert!(
+        lookback.total_runtime_ms > 0.0,
+        "mc_cpu_lookback_call_rust gate failed: expected benchmark presence and positive runtime"
+    );
+
     let qmc_quality = find_metric(
         "mc_cpu_european_call_rust_randomized_halton_control_variate_quality",
         &report,
@@ -130,6 +136,7 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         "mc_cpu_qmc_quality_european_scrambled_sobol",
         "mc_cpu_qmc_quality_arithmetic_asian_latin_hypercube",
         "mc_cpu_qmc_quality_down_and_out_randomized_halton",
+        "mc_cpu_qmc_quality_lookback_latin_hypercube",
         "mc_cpu_qmc_quality_basket_latin_hypercube",
     ] {
         let quality = find_metric(name, &report);

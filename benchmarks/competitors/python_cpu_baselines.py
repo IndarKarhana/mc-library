@@ -342,6 +342,79 @@ def benchmark_quantlib_european(
     )
 
 
+def benchmark_quantlib_fixed_strike_lookback(
+    n_paths: int, n_steps: int, repeats: int, seed: int
+) -> LibraryResult:
+    import QuantLib as ql
+
+    calendar = ql.NullCalendar()
+    day_count = ql.Actual365Fixed()
+    evaluation_date = ql.Date(2, ql.January, 2023)
+    maturity_date = ql.Date(2, ql.January, 2024)
+    ql.Settings.instance().evaluationDate = evaluation_date
+
+    spot = ql.QuoteHandle(ql.SimpleQuote(100.0))
+    dividend_curve = ql.YieldTermStructureHandle(
+        ql.FlatForward(evaluation_date, 0.0, day_count)
+    )
+    risk_free_curve = ql.YieldTermStructureHandle(
+        ql.FlatForward(evaluation_date, 0.03, day_count)
+    )
+    volatility = ql.BlackVolTermStructureHandle(
+        ql.BlackConstantVol(evaluation_date, calendar, 0.2, day_count)
+    )
+    process = ql.BlackScholesMertonProcess(
+        spot, dividend_curve, risk_free_curve, volatility
+    )
+    payoff = ql.PlainVanillaPayoff(ql.Option.Call, 100.0)
+    exercise = ql.EuropeanExercise(maturity_date)
+    max_so_far = 100.0
+
+    times: list[float] = []
+    prices: list[float] = []
+    stderrs: list[float] = []
+
+    for rep in range(repeats):
+        option = ql.FixedStrikeLookbackOption(max_so_far, payoff, exercise)
+
+        start = time.perf_counter()
+        engine = ql.MCLookbackEngine(
+            process,
+            "pseudorandom",
+            timeSteps=n_steps,
+            brownianBridge=False,
+            antitheticVariate=False,
+            requiredSamples=n_paths,
+            seed=seed + rep,
+        )
+        option.setPricingEngine(engine)
+        price = float(option.NPV())
+        elapsed = (time.perf_counter() - start) * 1000.0
+
+        try:
+            stderr = float(option.errorEstimate())
+        except RuntimeError:
+            stderr = math.nan
+
+        times.append(elapsed)
+        prices.append(price)
+        if math.isfinite(stderr):
+            stderrs.append(stderr)
+
+    return LibraryResult(
+        library="quantlib",
+        methodology="lookback_fixed_strike_stepwise_quantlib_mc",
+        available=True,
+        runtime_ms=sum(times) / len(times),
+        price=sum(prices) / len(prices),
+        stderr=(sum(stderrs) / len(stderrs)) if stderrs else None,
+        note=(
+            "QuantLib-Python fixed-strike lookback option with MCLookbackEngine; "
+            "max-so-far starts at spot to match the tracked discrete-monitoring workload."
+        ),
+    )
+
+
 def unavailable(name: str, methodology: str | None, note: str) -> LibraryResult:
     return LibraryResult(
         library=name,
@@ -397,11 +470,32 @@ def main() -> int:
                     f"benchmark failed: {type(exc).__name__}: {exc}",
                 )
             )
+        try:
+            results.append(
+                benchmark_quantlib_fixed_strike_lookback(
+                    args.paths, args.steps, args.repeats, args.seed
+                )
+            )
+        except Exception as exc:
+            results.append(
+                unavailable(
+                    "quantlib",
+                    "lookback_fixed_strike_stepwise_quantlib_mc",
+                    f"benchmark failed: {type(exc).__name__}: {exc}",
+                )
+            )
     else:
         results.append(
             unavailable(
                 "quantlib",
                 "stepwise_paths_quantlib_mceuropean",
+                "QuantLib-Python package not installed",
+            )
+        )
+        results.append(
+            unavailable(
+                "quantlib",
+                "lookback_fixed_strike_stepwise_quantlib_mc",
                 "QuantLib-Python package not installed",
             )
         )

@@ -41,6 +41,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add antithetic-variates support for the current CPU European-call runtime.
 - `done` Add control-variate support for narrow workloads with strong analytic references.
 - `done` Add arithmetic Asian and down-and-out call CPU workload families with deterministic reference execution.
+- `done` Add fixed-strike lookback call CPU workload with deterministic reference execution.
 - `done` Add first explicit sampling-method abstraction with pseudorandom, randomized Halton, and Latin hypercube CPU execution paths.
 
 ## Phase 4: NVIDIA Runtime
@@ -77,6 +78,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add automated CPU competitor baselines for NumPy and Numba.
 - `done` Add explicit availability reporting for JAX / CuPy / PyTorch in benchmark output.
 - `done` Add explicit QuantLib competitor reporting for the overlapping European Monte Carlo workload.
+- `done` Add explicit QuantLib competitor reporting for the fixed-strike lookback Monte Carlo workload.
 - `done` Auto-generate competitiveness improvement plan when running benchmarks.
 - `done` Track planner decision quality via planner-choice accuracy benchmark.
 - `done` Define performance gates and regression thresholds.
@@ -89,6 +91,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `in-progress` Calibrate planner choice quality against measured backend winners, not only hand-authored expected scenarios.
 - `done` Add arithmetic Asian CPU and Apple Metal benchmark coverage.
 - `done` Add down-and-out CPU and Apple Metal benchmark coverage.
+- `done` Add fixed-strike lookback CPU benchmark coverage.
 - `done` Add first randomized-Halton benchmark and estimator-quality coverage.
 - `done` Add first Latin-hypercube benchmark and estimator-quality coverage.
 - `done` Add compact benchmark profile for fast local gates without overwriting full competitiveness artifacts.

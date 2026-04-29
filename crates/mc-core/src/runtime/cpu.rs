@@ -85,6 +85,7 @@ pub enum PricingWorkloadFamily {
     ArithmeticAsianCall,
     DownAndOutCall,
     BasketCall,
+    LookbackCall,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -414,6 +415,31 @@ pub fn compare_down_and_out_sampling_quality_cpu(
 
     build_pricing_quality_comparison(
         PricingWorkloadFamily::DownAndOutCall,
+        sampling,
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        baseline,
+        structured,
+    )
+}
+
+pub fn compare_lookback_call_sampling_quality_cpu(
+    cfg: &LookbackCallConfig,
+    sampling: SamplingMethod,
+) -> PricingQualityComparison {
+    let mut baseline_cfg = *cfg;
+    baseline_cfg.sampling = SamplingMethod::Pseudorandom;
+    baseline_cfg.technique = MonteCarloTechnique::Standard;
+
+    let mut structured_cfg = baseline_cfg;
+    structured_cfg.sampling = sampling;
+
+    let baseline = lookback_call_price_mc_cpu(&baseline_cfg);
+    let structured = lookback_call_price_mc_cpu(&structured_cfg);
+
+    build_pricing_quality_comparison(
+        PricingWorkloadFamily::LookbackCall,
         sampling,
         cfg.n_paths,
         cfg.n_steps,
@@ -1042,6 +1068,39 @@ impl Default for DownAndOutCallConfig {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct LookbackCallConfig {
+    pub s0: f64,
+    pub k: f64,
+    pub r: f64,
+    pub sigma: f64,
+    pub t: f64,
+    pub n_paths: usize,
+    pub n_steps: usize,
+    pub seed: u64,
+    pub n_threads: usize,
+    pub technique: MonteCarloTechnique,
+    pub sampling: SamplingMethod,
+}
+
+impl Default for LookbackCallConfig {
+    fn default() -> Self {
+        Self {
+            s0: 100.0,
+            k: 100.0,
+            r: 0.03,
+            sigma: 0.2,
+            t: 1.0,
+            n_paths: 100_000,
+            n_steps: 252,
+            seed: 42,
+            n_threads: 0,
+            technique: MonteCarloTechnique::Standard,
+            sampling: SamplingMethod::Pseudorandom,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct BasketCallConfig {
     pub s01: f64,
     pub s02: f64,
@@ -1083,6 +1142,8 @@ impl Default for BasketCallConfig {
 }
 
 pub type DownAndOutCallResult = EuropeanCallResult;
+
+pub type LookbackCallResult = EuropeanCallResult;
 
 pub type ArithmeticAsianCallResult = EuropeanCallResult;
 
@@ -1450,6 +1511,132 @@ impl DownAndOutCallPricer {
 
     pub fn price(&self) -> DownAndOutCallResult {
         down_and_out_call_price_mc_cpu(&self.config)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LookbackCallPricer {
+    config: LookbackCallConfig,
+}
+
+impl Default for LookbackCallPricer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LookbackCallPricer {
+    pub fn new() -> Self {
+        Self {
+            config: LookbackCallConfig::default(),
+        }
+    }
+
+    pub fn from_config(config: LookbackCallConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn s0(mut self, value: f64) -> Self {
+        self.config.s0 = value;
+        self
+    }
+
+    pub fn strike(mut self, value: f64) -> Self {
+        self.config.k = value;
+        self
+    }
+
+    pub fn rate(mut self, value: f64) -> Self {
+        self.config.r = value;
+        self
+    }
+
+    pub fn volatility(mut self, value: f64) -> Self {
+        self.config.sigma = value;
+        self
+    }
+
+    pub fn maturity(mut self, value: f64) -> Self {
+        self.config.t = value;
+        self
+    }
+
+    pub fn paths(mut self, value: usize) -> Self {
+        self.config.n_paths = value;
+        self
+    }
+
+    pub fn steps(mut self, value: usize) -> Self {
+        self.config.n_steps = value;
+        self
+    }
+
+    pub fn seed(mut self, value: u64) -> Self {
+        self.config.seed = value;
+        self
+    }
+
+    pub fn threads(mut self, value: usize) -> Self {
+        self.config.n_threads = value;
+        self
+    }
+
+    pub fn technique(mut self, value: MonteCarloTechnique) -> Self {
+        self.config.technique = value;
+        self
+    }
+
+    pub fn sampling(mut self, value: SamplingMethod) -> Self {
+        self.config.sampling = value;
+        self
+    }
+
+    pub fn standard(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Standard;
+        self
+    }
+
+    pub fn antithetic(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::Antithetic;
+        self
+    }
+
+    pub fn control_variate(mut self) -> Self {
+        self.config.technique = MonteCarloTechnique::ControlVariate;
+        self
+    }
+
+    pub fn randomized_halton(mut self) -> Self {
+        self.config.sampling = SamplingMethod::RandomizedHalton;
+        self
+    }
+
+    pub fn latin_hypercube(mut self) -> Self {
+        self.config.sampling = SamplingMethod::LatinHypercube;
+        self
+    }
+
+    pub fn scrambled_sobol(mut self) -> Self {
+        self.config.sampling = SamplingMethod::ScrambledSobol;
+        self
+    }
+
+    pub fn scrambled_sobol_brownian_bridge(mut self) -> Self {
+        self.config.sampling = SamplingMethod::ScrambledSobolBrownianBridge;
+        self
+    }
+
+    pub fn pseudorandom(mut self) -> Self {
+        self.config.sampling = SamplingMethod::Pseudorandom;
+        self
+    }
+
+    pub fn config(&self) -> &LookbackCallConfig {
+        &self.config
+    }
+
+    pub fn price(&self) -> LookbackCallResult {
+        lookback_call_price_mc_cpu(&self.config)
     }
 }
 
@@ -2330,6 +2517,20 @@ pub fn down_and_out_call_price_mc_cpu(cfg: &DownAndOutCallConfig) -> DownAndOutC
     }
 }
 
+pub fn lookback_call_price_mc_cpu(cfg: &LookbackCallConfig) -> LookbackCallResult {
+    validate_lookback_call_config(cfg);
+
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        return simulate_lookback_stepwise_qmc(cfg);
+    }
+
+    match cfg.technique {
+        MonteCarloTechnique::Standard => lookback_call_price_mc_stepwise_standard(cfg),
+        MonteCarloTechnique::Antithetic => lookback_call_price_mc_stepwise_antithetic(cfg),
+        MonteCarloTechnique::ControlVariate => lookback_call_price_mc_stepwise_control_variate(cfg),
+    }
+}
+
 pub fn basket_call_price_mc_cpu(cfg: &BasketCallConfig) -> BasketCallResult {
     validate_basket_call_config(cfg);
 
@@ -2342,6 +2543,15 @@ pub fn basket_call_price_mc_cpu(cfg: &BasketCallConfig) -> BasketCallResult {
         MonteCarloTechnique::Antithetic => simulate_basket_pseudorandom_antithetic(cfg),
         MonteCarloTechnique::ControlVariate => simulate_basket_pseudorandom_control_variate(cfg),
     }
+}
+
+fn validate_lookback_call_config(cfg: &LookbackCallConfig) {
+    assert!(cfg.n_paths > 0, "n_paths must be > 0");
+    assert!(cfg.n_steps > 0, "n_steps must be > 0");
+    assert!(cfg.s0 > 0.0, "s0 must be > 0");
+    assert!(cfg.k >= 0.0, "k must be >= 0");
+    assert!(cfg.sigma >= 0.0, "sigma must be >= 0");
+    assert!(cfg.t > 0.0, "t must be > 0");
 }
 
 fn validate_basket_call_config(cfg: &BasketCallConfig) {
@@ -2606,6 +2816,46 @@ pub(crate) fn down_and_out_call_price_mc_stepwise_from_f32_normals(
         } else {
             ((s_t - strike).max(0.0) * discount) as f64
         };
+        payoff_sum += payoff;
+        payoff_sq_sum += payoff * payoff;
+    }
+
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+}
+
+#[allow(dead_code)]
+pub(crate) fn lookback_call_price_mc_stepwise_from_f32_normals(
+    cfg: &LookbackCallConfig,
+    normals: &[f32],
+) -> LookbackCallResult {
+    let expected = cfg.n_paths.saturating_mul(cfg.n_steps);
+    assert_eq!(
+        normals.len(),
+        expected,
+        "stepwise normal buffer must contain n_paths * n_steps values"
+    );
+
+    let log_s0 = cfg.s0.ln() as f32;
+    let strike = cfg.k as f32;
+    let dt = (cfg.t / cfg.n_steps as f64) as f32;
+    let drift_dt = ((cfg.r - 0.5 * cfg.sigma * cfg.sigma) as f32) * dt;
+    let vol_dt = (cfg.sigma as f32) * dt.sqrt();
+    let discount = ((-cfg.r * cfg.t).exp()) as f32;
+
+    let mut payoff_sum = 0.0f64;
+    let mut payoff_sq_sum = 0.0f64;
+
+    for path_idx in 0..cfg.n_paths {
+        let mut log_s_t = log_s0;
+        let mut max_s = cfg.s0 as f32;
+        let base_offset = path_idx * cfg.n_steps;
+        for step_idx in 0..cfg.n_steps {
+            let z = normals[base_offset + step_idx];
+            log_s_t += drift_dt + vol_dt * z;
+            max_s = max_s.max(log_s_t.exp());
+        }
+
+        let payoff = ((max_s - strike).max(0.0) * discount) as f64;
         payoff_sum += payoff;
         payoff_sq_sum += payoff * payoff;
     }
@@ -4314,6 +4564,100 @@ fn simulate_down_and_out_stepwise_qmc(cfg: &DownAndOutCallConfig) -> DownAndOutC
     }
 }
 
+fn simulate_lookback_stepwise_qmc(cfg: &LookbackCallConfig) -> LookbackCallResult {
+    let dt = cfg.t / cfg.n_steps as f64;
+    let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
+    let vol_dt = cfg.sigma * dt.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let qmc = StructuredNormalSampler::new(cfg.sampling, cfg.seed, cfg.n_paths, cfg.n_steps);
+    let mut bridge_workspace = BrownianBridgeWorkspace::new(cfg.sampling, cfg.n_steps, cfg.t);
+
+    match cfg.technique {
+        MonteCarloTechnique::Standard => {
+            let mut payoff_sum = 0.0;
+            let mut payoff_sq_sum = 0.0;
+            let mut path_normals = Vec::with_capacity(cfg.n_steps);
+            for path_idx in 0..cfg.n_paths {
+                let mut log_s_t = cfg.s0.ln();
+                let mut max_s = cfg.s0;
+                let bridge = bridge_workspace.step_normals(&qmc, path_idx);
+                let normals = if bridge.is_none() {
+                    qmc.fill_standard_normals(path_idx, cfg.n_steps, &mut path_normals);
+                    Some(path_normals.as_slice())
+                } else {
+                    None
+                };
+                for step_idx in 0..cfg.n_steps {
+                    let z = path_standard_normal(&qmc, path_idx, step_idx, normals, bridge);
+                    log_s_t += drift_dt + vol_dt * z;
+                    max_s = max_s.max(log_s_t.exp());
+                }
+                let payoff = (max_s - cfg.k).max(0.0) * discount;
+                payoff_sum += payoff;
+                payoff_sq_sum += payoff * payoff;
+            }
+            summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+        }
+        MonteCarloTechnique::Antithetic => {
+            let pair_count = cfg.n_paths.div_ceil(2);
+            let mut block_sum = 0.0;
+            let mut block_sq_sum = 0.0;
+            let mut path_normals = Vec::with_capacity(cfg.n_steps);
+            for pair_idx in 0..pair_count {
+                let mut log_a = cfg.s0.ln();
+                let mut log_b = cfg.s0.ln();
+                let mut max_a = cfg.s0;
+                let mut max_b = cfg.s0;
+                let bridge = bridge_workspace.step_normals(&qmc, pair_idx);
+                let normals = if bridge.is_none() {
+                    qmc.fill_standard_normals(pair_idx, cfg.n_steps, &mut path_normals);
+                    Some(path_normals.as_slice())
+                } else {
+                    None
+                };
+                for step_idx in 0..cfg.n_steps {
+                    let z = path_standard_normal(&qmc, pair_idx, step_idx, normals, bridge);
+                    log_a += drift_dt + vol_dt * z;
+                    log_b += drift_dt - vol_dt * z;
+                    max_a = max_a.max(log_a.exp());
+                    max_b = max_b.max(log_b.exp());
+                }
+                let payoff_a = (max_a - cfg.k).max(0.0) * discount;
+                let payoff_b = (max_b - cfg.k).max(0.0) * discount;
+                let block_estimate = 0.5 * (payoff_a + payoff_b);
+                block_sum += block_estimate;
+                block_sq_sum += block_estimate * block_estimate;
+            }
+            summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+        }
+        MonteCarloTechnique::ControlVariate => {
+            let mut moments = ControlVariateMoments::default();
+            let mut path_normals = Vec::with_capacity(cfg.n_steps);
+            for path_idx in 0..cfg.n_paths {
+                let mut log_s_t = cfg.s0.ln();
+                let mut max_s = cfg.s0;
+                let bridge = bridge_workspace.step_normals(&qmc, path_idx);
+                let normals = if bridge.is_none() {
+                    qmc.fill_standard_normals(path_idx, cfg.n_steps, &mut path_normals);
+                    Some(path_normals.as_slice())
+                } else {
+                    None
+                };
+                for step_idx in 0..cfg.n_steps {
+                    let z = path_standard_normal(&qmc, path_idx, step_idx, normals, bridge);
+                    log_s_t += drift_dt + vol_dt * z;
+                    max_s = max_s.max(log_s_t.exp());
+                }
+                moments.record(
+                    (max_s - cfg.k).max(0.0) * discount,
+                    discount * log_s_t.exp(),
+                );
+            }
+            summarize_control_variate(moments, cfg.s0)
+        }
+    }
+}
+
 fn simulate_basket_pseudorandom_standard(cfg: &BasketCallConfig) -> BasketCallResult {
     let params = BasketTerminalParams::new(cfg);
     let mut rng = MonteCarloRng::new(cfg.seed);
@@ -5053,6 +5397,314 @@ fn down_and_out_call_price_mc_stepwise_control_variate(
         )
     } else {
         simulate_down_and_out_stepwise_control_variate_parallel(
+            cfg,
+            thread_count,
+            drift_dt,
+            vol_dt,
+            discount,
+        )
+    };
+
+    summarize_control_variate(moments, cfg.s0)
+}
+
+fn simulate_lookback_stepwise_chunk(
+    seed: u64,
+    n_paths: usize,
+    n_steps: usize,
+    s0: f64,
+    k: f64,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> (f64, f64) {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+
+    for _ in 0..n_paths {
+        let mut log_s_t = s0.ln();
+        let mut max_s = s0;
+        for _ in 0..n_steps {
+            let z = rng.standard_normal();
+            log_s_t += drift_dt + vol_dt * z;
+            max_s = max_s.max(log_s_t.exp());
+        }
+
+        let payoff = (max_s - k).max(0.0) * discount;
+        payoff_sum += payoff;
+        payoff_sq_sum += payoff * payoff;
+    }
+
+    (payoff_sum, payoff_sq_sum)
+}
+
+fn simulate_lookback_stepwise_antithetic_chunk(
+    seed: u64,
+    pair_count: usize,
+    n_steps: usize,
+    s0: f64,
+    k: f64,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> (f64, f64) {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+
+    for _ in 0..pair_count {
+        let mut log_a = s0.ln();
+        let mut log_b = s0.ln();
+        let mut max_a = s0;
+        let mut max_b = s0;
+        for _ in 0..n_steps {
+            let z = rng.standard_normal();
+            log_a += drift_dt + vol_dt * z;
+            log_b += drift_dt - vol_dt * z;
+            max_a = max_a.max(log_a.exp());
+            max_b = max_b.max(log_b.exp());
+        }
+
+        let payoff_a = (max_a - k).max(0.0) * discount;
+        let payoff_b = (max_b - k).max(0.0) * discount;
+        let block_estimate = 0.5 * (payoff_a + payoff_b);
+        block_sum += block_estimate;
+        block_sq_sum += block_estimate * block_estimate;
+    }
+
+    (block_sum, block_sq_sum)
+}
+
+fn simulate_lookback_stepwise_control_variate_chunk(
+    seed: u64,
+    n_paths: usize,
+    n_steps: usize,
+    s0: f64,
+    k: f64,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> ControlVariateMoments {
+    let mut rng = MonteCarloRng::new(seed);
+    let mut moments = ControlVariateMoments::default();
+
+    for _ in 0..n_paths {
+        let mut log_s_t = s0.ln();
+        let mut max_s = s0;
+        for _ in 0..n_steps {
+            let z = rng.standard_normal();
+            log_s_t += drift_dt + vol_dt * z;
+            max_s = max_s.max(log_s_t.exp());
+        }
+
+        moments.record((max_s - k).max(0.0) * discount, discount * log_s_t.exp());
+    }
+
+    moments
+}
+
+fn simulate_lookback_stepwise_parallel(
+    cfg: &LookbackCallConfig,
+    thread_count: usize,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> (f64, f64) {
+    let base_chunk = cfg.n_paths / thread_count;
+    let remainder = cfg.n_paths % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let n_paths_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        let s0 = cfg.s0;
+        let k = cfg.k;
+        let n_steps = cfg.n_steps;
+        handles.push(thread::spawn(move || {
+            simulate_lookback_stepwise_chunk(
+                seed,
+                n_paths_chunk,
+                n_steps,
+                s0,
+                k,
+                drift_dt,
+                vol_dt,
+                discount,
+            )
+        }));
+    }
+
+    let mut payoff_sum = 0.0;
+    let mut payoff_sq_sum = 0.0;
+    for handle in handles {
+        let (chunk_sum, chunk_sq_sum) = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        payoff_sum += chunk_sum;
+        payoff_sq_sum += chunk_sq_sum;
+    }
+
+    (payoff_sum, payoff_sq_sum)
+}
+
+fn simulate_lookback_stepwise_antithetic_parallel(
+    cfg: &LookbackCallConfig,
+    thread_count: usize,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> (f64, f64) {
+    let pair_count = cfg.n_paths.div_ceil(2);
+    let base_chunk = pair_count / thread_count;
+    let remainder = pair_count % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let pair_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        let s0 = cfg.s0;
+        let k = cfg.k;
+        let n_steps = cfg.n_steps;
+        handles.push(thread::spawn(move || {
+            simulate_lookback_stepwise_antithetic_chunk(
+                seed, pair_chunk, n_steps, s0, k, drift_dt, vol_dt, discount,
+            )
+        }));
+    }
+
+    let mut block_sum = 0.0;
+    let mut block_sq_sum = 0.0;
+    for handle in handles {
+        let (chunk_sum, chunk_sq_sum) = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        block_sum += chunk_sum;
+        block_sq_sum += chunk_sq_sum;
+    }
+
+    (block_sum, block_sq_sum)
+}
+
+fn simulate_lookback_stepwise_control_variate_parallel(
+    cfg: &LookbackCallConfig,
+    thread_count: usize,
+    drift_dt: f64,
+    vol_dt: f64,
+    discount: f64,
+) -> ControlVariateMoments {
+    let base_chunk = cfg.n_paths / thread_count;
+    let remainder = cfg.n_paths % thread_count;
+
+    let mut handles = Vec::with_capacity(thread_count);
+    for idx in 0..thread_count {
+        let n_paths_chunk = base_chunk + usize::from(idx < remainder);
+        let seed = derive_chunk_seed(cfg.seed, idx as u64);
+        let s0 = cfg.s0;
+        let k = cfg.k;
+        let n_steps = cfg.n_steps;
+        handles.push(thread::spawn(move || {
+            simulate_lookback_stepwise_control_variate_chunk(
+                seed,
+                n_paths_chunk,
+                n_steps,
+                s0,
+                k,
+                drift_dt,
+                vol_dt,
+                discount,
+            )
+        }));
+    }
+
+    let mut moments = ControlVariateMoments::default();
+    for handle in handles {
+        let chunk = handle
+            .join()
+            .expect("CPU Monte Carlo worker thread panicked");
+        moments.merge(chunk);
+    }
+
+    moments
+}
+
+fn lookback_call_price_mc_stepwise_standard(cfg: &LookbackCallConfig) -> LookbackCallResult {
+    let dt = cfg.t / cfg.n_steps as f64;
+    let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
+    let vol_dt = cfg.sigma * dt.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let thread_count = resolved_thread_count(cfg.n_threads);
+
+    let (payoff_sum, payoff_sq_sum) = if thread_count <= 1 || cfg.n_paths < thread_count * 2_000 {
+        simulate_lookback_stepwise_chunk(
+            cfg.seed,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.s0,
+            cfg.k,
+            drift_dt,
+            vol_dt,
+            discount,
+        )
+    } else {
+        simulate_lookback_stepwise_parallel(cfg, thread_count, drift_dt, vol_dt, discount)
+    };
+
+    summarize_payoffs(cfg.n_paths, payoff_sum, payoff_sq_sum)
+}
+
+fn lookback_call_price_mc_stepwise_antithetic(cfg: &LookbackCallConfig) -> LookbackCallResult {
+    let dt = cfg.t / cfg.n_steps as f64;
+    let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
+    let vol_dt = cfg.sigma * dt.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let pair_count = cfg.n_paths.div_ceil(2);
+    let thread_count = resolved_thread_count(cfg.n_threads);
+
+    let (block_sum, block_sq_sum) = if thread_count <= 1 || pair_count < thread_count * 2_000 {
+        simulate_lookback_stepwise_antithetic_chunk(
+            cfg.seed,
+            pair_count,
+            cfg.n_steps,
+            cfg.s0,
+            cfg.k,
+            drift_dt,
+            vol_dt,
+            discount,
+        )
+    } else {
+        simulate_lookback_stepwise_antithetic_parallel(
+            cfg,
+            thread_count,
+            drift_dt,
+            vol_dt,
+            discount,
+        )
+    };
+
+    summarize_block_estimates(pair_count, block_sum, block_sq_sum)
+}
+
+fn lookback_call_price_mc_stepwise_control_variate(cfg: &LookbackCallConfig) -> LookbackCallResult {
+    let dt = cfg.t / cfg.n_steps as f64;
+    let drift_dt = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * dt;
+    let vol_dt = cfg.sigma * dt.sqrt();
+    let discount = (-cfg.r * cfg.t).exp();
+    let thread_count = resolved_thread_count(cfg.n_threads);
+
+    let moments = if thread_count <= 1 || cfg.n_paths < thread_count * 2_000 {
+        simulate_lookback_stepwise_control_variate_chunk(
+            cfg.seed,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.s0,
+            cfg.k,
+            drift_dt,
+            vol_dt,
+            discount,
+        )
+    } else {
+        simulate_lookback_stepwise_control_variate_parallel(
             cfg,
             thread_count,
             drift_dt,
