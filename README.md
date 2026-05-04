@@ -48,6 +48,17 @@ let result = EuropeanCallPricer::new()
     .price();
 ```
 
+```rust
+use mc_core::{EuropeanCallPricer, Greek, GreekEstimator};
+
+let greeks = EuropeanCallPricer::new()
+    .paths(100_000)
+    .seed(42)
+    .greeks(GreekEstimator::Pathwise);
+
+let delta = greeks.estimate(Greek::Delta).unwrap().value;
+```
+
 ## Current Runtime Surface
 
 The CPU runtime now exposes:
@@ -57,6 +68,7 @@ The CPU runtime now exposes:
 - variance-reduction techniques including antithetic variates and control variates
 - separate sampling selection via `SamplingMethod::{Pseudorandom, RandomizedHalton, LatinHypercube, ScrambledSobol, ScrambledSobolBrownianBridge}`
 - arithmetic Asian multilevel Monte Carlo via `ArithmeticAsianMlmcConfig` and `arithmetic_asian_call_price_mlmc_cpu()`
+- structured Greek reports via `GreekReport`, with bump-and-revalue support across current CPU workloads and European pathwise / likelihood-ratio estimators where valid
 - a machine-readable method capability catalog via `monte_carlo_method_capabilities()`
 - method recommendation via `recommend_method()` in Rust and `mc_library.recommend_method()` in Python
 - multiple workload families:
@@ -64,6 +76,8 @@ The CPU runtime now exposes:
   - arithmetic Asian call
   - down-and-out call
   - two-asset basket call
+  - fixed-strike lookback call
+  - Heston European call
 
 The GPU backend layer now exposes:
 
@@ -151,42 +165,48 @@ Market landscape notes are in `docs/market-landscape.md`.
 
 From the latest release benchmark run:
 
-- fair step-wise Rust CPU European path: `14.061 ms`
-- step-wise Rust antithetic path: `30.330 ms`
-- step-wise Rust control-variate path: `15.615 ms`
-- arithmetic Asian Rust CPU path: `19.976 ms`
-- arithmetic Asian Rust CPU control-variate path: `21.784 ms`
-- arithmetic Asian Rust CPU MLMC path: `4.733 ms`
-- arithmetic Asian Rust CPU MLQMC path: `7.266 ms`
-- randomized Halton Rust CPU European path: `86.695 ms`
-- Latin hypercube Rust CPU European path: `71.105 ms`
-- scrambled Sobol Rust CPU European path: `86.261 ms`
-- scrambled Sobol Brownian bridge Rust CPU European path: `114.053 ms`
-- down-and-out Rust CPU path: `60.738 ms`
+- fair step-wise Rust CPU European path: `12.845 ms`
+- step-wise Rust antithetic path: `29.021 ms`
+- step-wise Rust control-variate path: `13.099 ms`
+- arithmetic Asian Rust CPU path: `17.693 ms`
+- arithmetic Asian Rust CPU control-variate path: `17.670 ms`
+- arithmetic Asian Rust CPU MLMC path: `4.303 ms`
+- arithmetic Asian Rust CPU MLQMC path: `5.749 ms`
+- randomized Halton Rust CPU European path: `78.125 ms`
+- Latin hypercube Rust CPU European path: `63.870 ms`
+- scrambled Sobol Rust CPU European path: `78.774 ms`
+- scrambled Sobol Brownian bridge Rust CPU European path: `102.601 ms`
+- down-and-out Rust CPU path: `18.449 ms`
 - down-and-out Rust CPU control-variate path: `22.168 ms`
-- basket Rust CPU pseudorandom path: `5.471 ms`
-- basket Rust CPU Latin hypercube path: `5.034 ms`
-- basket Rust CPU scrambled Sobol path: `8.178 ms`
-- specialized Rust terminal-distribution fast path: `0.632 ms`
-- native Metal European path on macOS: `1.451 ms`
-- native Metal European antithetic path on macOS: `0.964 ms`
-- native Metal European control-variate path on macOS: `1.190 ms`
-- native Metal arithmetic Asian path on macOS: `1.461 ms`
-- native Metal arithmetic Asian control-variate path on macOS: `1.043 ms`
-- native Metal down-and-out path on macOS: `0.941 ms`
-- native Metal down-and-out control-variate path on macOS: `1.218 ms`
-- NumPy fair CPU baseline: `89.022 ms`
-- Numba fair CPU baseline: `231.833 ms`
+- fixed-strike lookback Rust CPU path: `16.349 ms`
+- Heston European Rust CPU path: `26.461 ms`
+- basket Rust CPU pseudorandom path: `4.147 ms`
+- basket Rust CPU Latin hypercube path: `4.003 ms`
+- basket Rust CPU scrambled Sobol path: `7.002 ms`
+- European bump-and-revalue Delta error vs Black-Scholes: `0.000126` in `3.225 ms`
+- European pathwise Delta error vs Black-Scholes: `0.000281` in `1.523 ms`
+- European likelihood-ratio Delta error vs Black-Scholes: `0.002631` in `1.460 ms`
+- all-current-workload bump Greek breadth: `26` estimates in `216.317 ms`
+- specialized Rust terminal-distribution fast path: `0.524 ms`
+- native Metal European path on macOS: `1.495 ms`
+- native Metal European antithetic path on macOS: `0.985 ms`
+- native Metal European control-variate path on macOS: `0.987 ms`
+- native Metal arithmetic Asian path on macOS: `0.696 ms`
+- native Metal arithmetic Asian control-variate path on macOS: `0.703 ms`
+- native Metal down-and-out path on macOS: `0.789 ms`
+- native Metal down-and-out control-variate path on macOS: `0.752 ms`
+- NumPy fair CPU baseline: `76.321 ms`
+- Numba fair CPU baseline: `222.326 ms`
 - measured planner choice accuracy vs local backend winners: `87.5%`
 
 Current QMC generation scoreboard from the same release run:
 
-- Rust scrambled Sobol normal generation: `106.829 ms`
-- SciPy scrambled Sobol normal generation: `136.034 ms`
-- Rust randomized Halton normal generation: `81.437 ms`
-- SciPy randomized Halton normal generation: `200.467 ms`
-- Rust Latin hypercube normal generation: `45.736 ms`
-- SciPy Latin hypercube normal generation: `335.581 ms`
+- Rust scrambled Sobol normal generation: `74.437 ms`
+- SciPy scrambled Sobol normal generation: `115.477 ms`
+- Rust randomized Halton normal generation: `56.383 ms`
+- SciPy randomized Halton normal generation: `145.888 ms`
+- Rust Latin hypercube normal generation: `39.611 ms`
+- SciPy Latin hypercube normal generation: `195.198 ms`
 
 Current QMC pricing-quality and UQ scoreboard from the same release run:
 

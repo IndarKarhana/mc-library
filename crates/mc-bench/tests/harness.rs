@@ -222,6 +222,46 @@ fn rust_mc_benchmark_is_present() {
         Some("abs_error_vs_black_scholes")
     );
 
+    let greek_bump = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_greeks_bump_rust")
+        .expect("European bump-and-revalue Greek benchmark should be present");
+    assert_eq!(
+        greek_bump.metric_name.as_deref(),
+        Some("abs_delta_error_vs_black_scholes")
+    );
+
+    let greek_pathwise = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_greeks_pathwise_rust")
+        .expect("European pathwise Greek benchmark should be present");
+    assert_eq!(
+        greek_pathwise.metric_name.as_deref(),
+        Some("abs_delta_error_vs_black_scholes")
+    );
+
+    let greek_lr = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_greeks_likelihood_ratio_rust")
+        .expect("European likelihood-ratio Greek benchmark should be present");
+    assert_eq!(
+        greek_lr.metric_name.as_deref(),
+        Some("abs_delta_error_vs_black_scholes")
+    );
+
+    let all_greeks = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_all_workload_greeks_bump_rust")
+        .expect("all-workload Greek breadth benchmark should be present");
+    assert_eq!(
+        all_greeks.metric_name.as_deref(),
+        Some("greek_estimate_count")
+    );
+
     let uq = report
         .results
         .iter()

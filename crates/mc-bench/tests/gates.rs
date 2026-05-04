@@ -121,6 +121,40 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         heston_abs_error
     );
 
+    for name in [
+        "mc_cpu_european_call_greeks_bump_rust",
+        "mc_cpu_european_call_greeks_pathwise_rust",
+        "mc_cpu_european_call_greeks_likelihood_ratio_rust",
+    ] {
+        let greek = find_metric(name, &report);
+        assert_eq!(
+            greek.metric_name.as_deref(),
+            Some("abs_delta_error_vs_black_scholes")
+        );
+        let abs_error = greek
+            .metric_value
+            .unwrap_or_else(|| panic!("{name} must contain metric_value"));
+        assert!(
+            abs_error.is_finite() && abs_error < 0.08,
+            "{name} gate failed: abs_delta_error_vs_black_scholes={} expected<0.08",
+            abs_error
+        );
+    }
+
+    let all_greeks = find_metric("mc_cpu_all_workload_greeks_bump_rust", &report);
+    assert_eq!(
+        all_greeks.metric_name.as_deref(),
+        Some("greek_estimate_count")
+    );
+    let greek_count = all_greeks
+        .metric_value
+        .expect("all-workload Greek benchmark must contain metric_value");
+    assert!(
+        greek_count >= 24.0,
+        "all-workload Greek benchmark should cover at least 24 estimates, got {}",
+        greek_count
+    );
+
     let qmc_quality = find_metric(
         "mc_cpu_european_call_rust_randomized_halton_control_variate_quality",
         &report,

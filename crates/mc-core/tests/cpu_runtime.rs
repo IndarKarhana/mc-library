@@ -1,21 +1,22 @@
 use mc_core::{
     arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
-    basket_call_price_mc_cpu, black_scholes_european_call_price,
-    compare_arithmetic_asian_sampling_quality_cpu, compare_basket_call_sampling_quality_cpu,
-    compare_down_and_out_sampling_quality_cpu, compare_european_call_realized_error_cpu,
-    compare_european_call_sampling_quality_cpu, compare_heston_black_scholes_limit_cpu,
-    diagnose_standard_normals_cpu, down_and_out_call_price_mc_cpu, european_call_price_mc_cpu,
+    basket_call_price_mc_cpu, black_scholes_european_call_greeks,
+    black_scholes_european_call_price, compare_arithmetic_asian_sampling_quality_cpu,
+    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    compare_european_call_realized_error_cpu, compare_european_call_sampling_quality_cpu,
+    compare_heston_black_scholes_limit_cpu, diagnose_standard_normals_cpu,
+    down_and_out_call_price_mc_cpu, european_call_greeks_cpu, european_call_price_mc_cpu,
     european_call_price_mc_cpu_stepwise, european_call_price_mc_cpu_terminal,
-    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu,
+    gaussian_uncertainty_mean_cpu, generate_standard_normals_cpu, heston_european_call_greeks_cpu,
     heston_european_call_price_mc_cpu, lookback_call_price_mc_cpu, monte_carlo_method_capabilities,
-    solve_arithmetic_asian_mlmc_tolerance_cpu, structured_sampling_guidance_cpu,
-    tune_arithmetic_asian_mlmc_allocation_cpu, ArithmeticAsianCallConfig,
-    ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcPricer,
-    ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport, BasketCallConfig, BasketCallPricer,
-    DownAndOutCallConfig, DownAndOutCallPricer, EuropeanCallConfig, EuropeanCallMethod,
-    EuropeanCallPricer, GaussianUncertaintyConfig, HestonEuropeanCallConfig,
-    HestonEuropeanCallPricer, LookbackCallConfig, LookbackCallPricer, MonteCarloRng,
-    MonteCarloTechnique, PricingWorkloadFamily, SamplingMethod,
+    price_all_current_greeks_bump_and_revalue_cpu, solve_arithmetic_asian_mlmc_tolerance_cpu,
+    structured_sampling_guidance_cpu, tune_arithmetic_asian_mlmc_allocation_cpu,
+    ArithmeticAsianCallConfig, ArithmeticAsianCallPricer, ArithmeticAsianMlmcConfig,
+    ArithmeticAsianMlmcPricer, ArithmeticAsianMlmcToleranceConfig, BackendMethodSupport,
+    BasketCallConfig, BasketCallPricer, DownAndOutCallConfig, DownAndOutCallPricer,
+    EuropeanCallConfig, EuropeanCallMethod, EuropeanCallPricer, GaussianUncertaintyConfig, Greek,
+    GreekEstimator, HestonEuropeanCallConfig, HestonEuropeanCallPricer, LookbackCallConfig,
+    LookbackCallPricer, MonteCarloRng, MonteCarloTechnique, PricingWorkloadFamily, SamplingMethod,
 };
 
 #[test]
@@ -1225,6 +1226,136 @@ fn heston_pricer_builder_supports_expressive_configuration() {
 }
 
 #[test]
+fn black_scholes_greeks_are_sane_and_structured() {
+    let greeks = black_scholes_european_call_greeks(100.0, 100.0, 0.03, 0.2, 1.0);
+
+    assert!(greeks.delta > 0.55 && greeks.delta < 0.65);
+    assert!(greeks.vega > 35.0 && greeks.vega < 45.0);
+    assert!(greeks.rho > 45.0 && greeks.rho < 55.0);
+    assert!(greeks.theta < 0.0);
+}
+
+#[test]
+fn european_bump_greeks_are_close_to_black_scholes_references() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 200_000,
+        n_steps: 64,
+        seed: 14_001,
+        ..EuropeanCallConfig::default()
+    };
+
+    let report = european_call_greeks_cpu(&cfg, GreekEstimator::BumpAndRevalue);
+    let analytic = black_scholes_european_call_greeks(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t);
+
+    assert_eq!(report.workload, PricingWorkloadFamily::EuropeanCall);
+    assert_eq!(report.estimator, GreekEstimator::BumpAndRevalue);
+    assert!(report.estimated_runtime_ms.is_none());
+
+    let delta = report
+        .estimate(Greek::Delta)
+        .expect("Delta estimate should be present");
+    let vega = report
+        .estimate(Greek::Vega)
+        .expect("Vega estimate should be present");
+    let rho = report
+        .estimate(Greek::Rho)
+        .expect("Rho estimate should be present");
+    let theta = report
+        .estimate(Greek::Theta)
+        .expect("Theta estimate should be present");
+
+    assert!((delta.value - analytic.delta).abs() < 0.03);
+    assert!((vega.value - analytic.vega).abs() < 2.0);
+    assert!((rho.value - analytic.rho).abs() < 3.0);
+    assert!((theta.value - analytic.theta).abs() < 2.0);
+    assert!(delta.stderr.unwrap() >= 0.0);
+}
+
+#[test]
+fn european_pathwise_and_likelihood_ratio_greeks_report_supported_estimators() {
+    let cfg = EuropeanCallConfig {
+        n_paths: 150_000,
+        n_steps: 64,
+        seed: 14_002,
+        ..EuropeanCallConfig::default()
+    };
+
+    let pathwise = european_call_greeks_cpu(&cfg, GreekEstimator::Pathwise);
+    let likelihood_ratio = european_call_greeks_cpu(&cfg, GreekEstimator::LikelihoodRatio);
+    let analytic = black_scholes_european_call_greeks(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t);
+
+    let pathwise_delta = pathwise
+        .estimate(Greek::Delta)
+        .expect("pathwise Delta should be present");
+    let pathwise_vega = pathwise
+        .estimate(Greek::Vega)
+        .expect("pathwise Vega should be present");
+    let lr_delta = likelihood_ratio
+        .estimate(Greek::Delta)
+        .expect("likelihood-ratio Delta should be present");
+
+    assert!((pathwise_delta.value - analytic.delta).abs() < 0.03);
+    assert!((pathwise_vega.value - analytic.vega).abs() < 2.5);
+    assert!((lr_delta.value - analytic.delta).abs() < 0.04);
+    assert!(pathwise_delta.stderr.unwrap() > 0.0);
+    assert!(lr_delta.stderr.unwrap() > 0.0);
+    assert!(likelihood_ratio
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Delta")));
+}
+
+#[test]
+fn bump_and_revalue_greeks_cover_current_cpu_workloads() {
+    let report = price_all_current_greeks_bump_and_revalue_cpu(20_000, 32, 14_003);
+
+    assert_eq!(report.len(), 6);
+    for workload_report in &report {
+        assert_eq!(workload_report.estimator, GreekEstimator::BumpAndRevalue);
+        assert!(
+            !workload_report.estimates.is_empty(),
+            "{:?} should contain at least one Greek estimate",
+            workload_report.workload
+        );
+        assert!(
+            workload_report
+                .estimates
+                .iter()
+                .all(|estimate| estimate.value.is_finite()),
+            "{:?} should contain finite Greek values",
+            workload_report.workload
+        );
+    }
+}
+
+#[test]
+fn heston_black_scholes_limit_greeks_match_reference() {
+    let sigma = 0.2;
+    let cfg = HestonEuropeanCallConfig {
+        v0: sigma * sigma,
+        theta: sigma * sigma,
+        vol_of_vol: 0.0,
+        rho: 0.0,
+        n_paths: 160_000,
+        n_steps: 64,
+        seed: 14_004,
+        ..HestonEuropeanCallConfig::default()
+    };
+
+    let report = heston_european_call_greeks_cpu(&cfg, GreekEstimator::BumpAndRevalue);
+    let analytic = black_scholes_european_call_greeks(cfg.s0, cfg.k, cfg.r, sigma, cfg.t);
+    let delta = report
+        .estimate(Greek::Delta)
+        .expect("Heston Black-Scholes-limit Delta should be present");
+    let rho = report
+        .estimate(Greek::Rho)
+        .expect("Heston Black-Scholes-limit Rho should be present");
+
+    assert!((delta.value - analytic.delta).abs() < 0.04);
+    assert!((rho.value - analytic.rho).abs() < 4.0);
+}
+
+#[test]
 fn method_capability_catalog_exposes_supported_and_planned_methods() {
     let capabilities = monte_carlo_method_capabilities();
 
@@ -1273,6 +1404,13 @@ fn method_capability_catalog_exposes_supported_and_planned_methods() {
         .find(|capability| capability.method_id == "multilevel_randomized_qmc")
         .expect("MLQMC should be listed");
     assert_eq!(mlqmc.cpu_native, BackendMethodSupport::CpuReference);
+
+    let greeks = capabilities
+        .iter()
+        .find(|capability| capability.method_id == "bump_and_revalue_greeks")
+        .expect("bump-and-revalue Greeks should be listed");
+    assert_eq!(greeks.cpu_native, BackendMethodSupport::CpuReference);
+    assert!(greeks.notes.iter().any(|note| note.contains("Heston")));
 }
 
 fn black_scholes_call(s0: f64, k: f64, r: f64, sigma: f64, t: f64) -> f64 {

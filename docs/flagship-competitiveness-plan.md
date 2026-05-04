@@ -73,7 +73,7 @@ Deliverables:
 - `done` Add basket option CPU runtime and benchmark.
 - `done` Add lookback option CPU runtime and benchmark.
 - `done` Add Heston path simulation with reference validation.
-- `todo` Add Greeks: bump-and-revalue first, then pathwise and likelihood-ratio estimators.
+- `done` Add Greeks: bump-and-revalue first, then pathwise and likelihood-ratio estimators.
 - `todo` Add product/model capability catalog with assumptions and unsupported states.
 - `todo` Add accuracy fixtures against analytic or semi-analytic references where available.
 
@@ -84,7 +84,7 @@ Definition of done:
 
 Next action:
 
-- Add Greeks: bump-and-revalue first for selected European, path-dependent, basket, and Heston workloads, then pathwise and likelihood-ratio estimators where assumptions are valid.
+- Add a product/model capability catalog with assumptions, supported Greeks, estimator availability, reference fixtures, and explicit unsupported states.
 
 ## Phase 3: Become The Most User-Friendly MC Library
 

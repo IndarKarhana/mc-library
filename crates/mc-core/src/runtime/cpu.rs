@@ -132,6 +132,70 @@ pub struct AnalyticPricingComparison {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Greek {
+    Delta,
+    Delta2,
+    Vega,
+    Vega2,
+    Rho,
+    Theta,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GreekEstimator {
+    BumpAndRevalue,
+    Pathwise,
+    LikelihoodRatio,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GreekEstimate {
+    pub greek: Greek,
+    pub estimator: GreekEstimator,
+    pub value: f64,
+    pub stderr: Option<f64>,
+    pub bump_size: Option<f64>,
+    pub base_price: f64,
+    pub bumped_up_price: Option<f64>,
+    pub bumped_down_price: Option<f64>,
+    pub stderr_estimate_kind: String,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GreekReport {
+    pub workload: PricingWorkloadFamily,
+    pub estimator: GreekEstimator,
+    pub paths: usize,
+    pub steps: usize,
+    pub seed: u64,
+    pub base_price: f64,
+    pub base_stderr: f64,
+    pub estimated_runtime_ms: Option<f64>,
+    pub estimates: Vec<GreekEstimate>,
+    pub warnings: Vec<String>,
+}
+
+impl GreekReport {
+    pub fn estimate(&self, greek: Greek) -> Option<&GreekEstimate> {
+        self.estimates
+            .iter()
+            .find(|estimate| estimate.greek == greek)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct BlackScholesGreeks {
+    pub price: f64,
+    pub delta: f64,
+    pub vega: f64,
+    pub rho: f64,
+    pub theta: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HestonReferenceComparison {
     pub reference_name: String,
@@ -593,6 +657,38 @@ pub fn black_scholes_european_call_price(s0: f64, k: f64, r: f64, sigma: f64, t:
     s0 * standard_normal_cdf(d1) - k * (-r * t).exp() * standard_normal_cdf(d2)
 }
 
+pub fn black_scholes_european_call_greeks(
+    s0: f64,
+    k: f64,
+    r: f64,
+    sigma: f64,
+    t: f64,
+) -> BlackScholesGreeks {
+    assert!(s0 > 0.0, "s0 must be > 0");
+    assert!(k > 0.0, "k must be > 0");
+    assert!(sigma > 0.0, "sigma must be > 0");
+    assert!(t > 0.0, "t must be > 0");
+
+    let sqrt_t = t.sqrt();
+    let d1 = ((s0 / k).ln() + (r + 0.5 * sigma * sigma) * t) / (sigma * sqrt_t);
+    let d2 = d1 - sigma * sqrt_t;
+    let discount = (-r * t).exp();
+    let price = s0 * standard_normal_cdf(d1) - k * discount * standard_normal_cdf(d2);
+    let pdf_d1 = standard_normal_pdf(d1);
+
+    BlackScholesGreeks {
+        price,
+        delta: standard_normal_cdf(d1),
+        vega: s0 * pdf_d1 * sqrt_t,
+        rho: k * t * discount * standard_normal_cdf(d2),
+        theta: -(s0 * pdf_d1 * sigma) / (2.0 * sqrt_t) - r * k * discount * standard_normal_cdf(d2),
+    }
+}
+
+fn standard_normal_pdf(x: f64) -> f64 {
+    (-0.5 * x * x).exp() / (2.0 * PI).sqrt()
+}
+
 fn standard_normal_cdf(x: f64) -> f64 {
     let sign = if x < 0.0 { -1.0 } else { 1.0 };
     let z = x.abs() / 2f64.sqrt();
@@ -778,6 +874,7 @@ pub enum MonteCarloMethodCategory {
     VarianceReduction,
     StructuredSampling,
     Multilevel,
+    Sensitivity,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -883,6 +980,33 @@ pub fn monte_carlo_method_capabilities() -> Vec<MonteCarloMethodCapability> {
             BackendMethodSupport::Planned,
             BackendMethodSupport::Planned,
             &["CPU reference support currently covers arithmetic Asian MLMC with scrambled Sobol increments"],
+        ),
+        method_capability(
+            "bump_and_revalue_greeks",
+            "Bump-and-revalue Greeks",
+            MonteCarloMethodCategory::Sensitivity,
+            BackendMethodSupport::CpuReference,
+            BackendMethodSupport::Planned,
+            BackendMethodSupport::Planned,
+            &["CPU reference support covers current European, arithmetic Asian, down-and-out, lookback, basket, and Heston workload families"],
+        ),
+        method_capability(
+            "pathwise_greeks",
+            "Pathwise Greeks",
+            MonteCarloMethodCategory::Sensitivity,
+            BackendMethodSupport::CpuReference,
+            BackendMethodSupport::Planned,
+            BackendMethodSupport::Planned,
+            &["CPU reference support currently covers terminal GBM European-call Delta, Vega, Rho, and Theta"],
+        ),
+        method_capability(
+            "likelihood_ratio_greeks",
+            "Likelihood-ratio Greeks",
+            MonteCarloMethodCategory::Sensitivity,
+            BackendMethodSupport::CpuReference,
+            BackendMethodSupport::Planned,
+            BackendMethodSupport::Planned,
+            &["CPU reference support currently covers terminal GBM European-call Delta, Vega, and Rho"],
         ),
     ]
 }
@@ -1370,6 +1494,10 @@ impl ArithmeticAsianCallPricer {
     pub fn price(&self) -> ArithmeticAsianCallResult {
         arithmetic_asian_call_price_mc_cpu(&self.config)
     }
+
+    pub fn greeks(&self, estimator: GreekEstimator) -> GreekReport {
+        arithmetic_asian_call_greeks_cpu(&self.config, estimator)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1609,6 +1737,10 @@ impl DownAndOutCallPricer {
     pub fn price(&self) -> DownAndOutCallResult {
         down_and_out_call_price_mc_cpu(&self.config)
     }
+
+    pub fn greeks(&self, estimator: GreekEstimator) -> GreekReport {
+        down_and_out_call_greeks_cpu(&self.config, estimator)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1734,6 +1866,10 @@ impl LookbackCallPricer {
 
     pub fn price(&self) -> LookbackCallResult {
         lookback_call_price_mc_cpu(&self.config)
+    }
+
+    pub fn greeks(&self, estimator: GreekEstimator) -> GreekReport {
+        lookback_call_greeks_cpu(&self.config, estimator)
     }
 }
 
@@ -1876,6 +2012,10 @@ impl BasketCallPricer {
 
     pub fn price(&self) -> BasketCallResult {
         basket_call_price_mc_cpu(&self.config)
+    }
+
+    pub fn greeks(&self, estimator: GreekEstimator) -> GreekReport {
+        basket_call_greeks_cpu(&self.config, estimator)
     }
 }
 
@@ -2027,6 +2167,10 @@ impl EuropeanCallPricer {
     pub fn price(&self) -> EuropeanCallResult {
         european_call_price_mc_cpu_with_method(&self.config, self.method)
     }
+
+    pub fn greeks(&self, estimator: GreekEstimator) -> GreekReport {
+        european_call_greeks_cpu(&self.config, estimator)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2142,6 +2286,10 @@ impl HestonEuropeanCallPricer {
 
     pub fn price(&self) -> HestonEuropeanCallResult {
         heston_european_call_price_mc_cpu(&self.config)
+    }
+
+    pub fn greeks(&self, estimator: GreekEstimator) -> GreekReport {
+        heston_european_call_greeks_cpu(&self.config, estimator)
     }
 
     pub fn black_scholes_limit_check(&self) -> HestonReferenceComparison {
@@ -2772,6 +2920,980 @@ pub fn basket_call_price_mc_cpu(cfg: &BasketCallConfig) -> BasketCallResult {
         MonteCarloTechnique::Antithetic => simulate_basket_pseudorandom_antithetic(cfg),
         MonteCarloTechnique::ControlVariate => simulate_basket_pseudorandom_control_variate(cfg),
     }
+}
+
+pub fn european_call_greeks_cpu(
+    cfg: &EuropeanCallConfig,
+    estimator: GreekEstimator,
+) -> GreekReport {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => european_call_bump_greeks_cpu(cfg),
+        GreekEstimator::Pathwise => european_call_pathwise_greeks_cpu(cfg),
+        GreekEstimator::LikelihoodRatio => european_call_likelihood_ratio_greeks_cpu(cfg),
+    }
+}
+
+pub fn arithmetic_asian_call_greeks_cpu(
+    cfg: &ArithmeticAsianCallConfig,
+    estimator: GreekEstimator,
+) -> GreekReport {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => {
+            let base = arithmetic_asian_call_price_mc_cpu(cfg);
+            let mut estimates = Vec::new();
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Delta,
+                base,
+                cfg.s0,
+                bump_spot(cfg.s0),
+                |mut c: ArithmeticAsianCallConfig, value| {
+                    c.s0 = value;
+                    c
+                },
+                *cfg,
+                arithmetic_asian_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on spot",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Vega,
+                base,
+                cfg.sigma,
+                bump_volatility(cfg.sigma),
+                |mut c: ArithmeticAsianCallConfig, value| {
+                    c.sigma = value;
+                    c
+                },
+                *cfg,
+                arithmetic_asian_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on volatility",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Rho,
+                base,
+                cfg.r,
+                bump_rate(),
+                |mut c: ArithmeticAsianCallConfig, value| {
+                    c.r = value;
+                    c
+                },
+                *cfg,
+                arithmetic_asian_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on rate",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Theta,
+                base,
+                cfg.t,
+                bump_maturity(cfg.t),
+                |mut c: ArithmeticAsianCallConfig, value| {
+                    c.t = value;
+                    c
+                },
+                *cfg,
+                arithmetic_asian_call_price_mc_cpu,
+                true,
+                "conventional calendar theta from central maturity finite difference",
+            );
+            greek_report(
+                PricingWorkloadFamily::ArithmeticAsianCall,
+                estimator,
+                cfg.n_paths,
+                cfg.n_steps,
+                cfg.seed,
+                base,
+                estimates,
+                vec![
+                    "Bump-and-revalue uses common seeds to reduce finite-difference noise"
+                        .to_string(),
+                ],
+            )
+        }
+        GreekEstimator::Pathwise | GreekEstimator::LikelihoodRatio => unsupported_greek_report(
+            PricingWorkloadFamily::ArithmeticAsianCall,
+            estimator,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.seed,
+            arithmetic_asian_call_price_mc_cpu(cfg),
+            "Pathwise and likelihood-ratio estimators are not exposed for arithmetic Asian calls yet; use bump-and-revalue.",
+        ),
+    }
+}
+
+pub fn down_and_out_call_greeks_cpu(
+    cfg: &DownAndOutCallConfig,
+    estimator: GreekEstimator,
+) -> GreekReport {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => {
+            let base = down_and_out_call_price_mc_cpu(cfg);
+            let mut estimates = Vec::new();
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Delta,
+                base,
+                cfg.s0,
+                bump_spot(cfg.s0),
+                |mut c: DownAndOutCallConfig, value| {
+                    c.s0 = value;
+                    c
+                },
+                *cfg,
+                down_and_out_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on spot",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Vega,
+                base,
+                cfg.sigma,
+                bump_volatility(cfg.sigma),
+                |mut c: DownAndOutCallConfig, value| {
+                    c.sigma = value;
+                    c
+                },
+                *cfg,
+                down_and_out_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on volatility",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Rho,
+                base,
+                cfg.r,
+                bump_rate(),
+                |mut c: DownAndOutCallConfig, value| {
+                    c.r = value;
+                    c
+                },
+                *cfg,
+                down_and_out_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on rate",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Theta,
+                base,
+                cfg.t,
+                bump_maturity(cfg.t),
+                |mut c: DownAndOutCallConfig, value| {
+                    c.t = value;
+                    c
+                },
+                *cfg,
+                down_and_out_call_price_mc_cpu,
+                true,
+                "conventional calendar theta from central maturity finite difference",
+            );
+            greek_report(
+                PricingWorkloadFamily::DownAndOutCall,
+                estimator,
+                cfg.n_paths,
+                cfg.n_steps,
+                cfg.seed,
+                base,
+                estimates,
+                vec!["Barrier discontinuities can make pathwise Greeks unstable; bump-and-revalue is the current supported estimator.".to_string()],
+            )
+        }
+        GreekEstimator::Pathwise | GreekEstimator::LikelihoodRatio => unsupported_greek_report(
+            PricingWorkloadFamily::DownAndOutCall,
+            estimator,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.seed,
+            down_and_out_call_price_mc_cpu(cfg),
+            "Pathwise and likelihood-ratio estimators are not exposed for barrier calls because knock-out discontinuities need separate treatment.",
+        ),
+    }
+}
+
+pub fn lookback_call_greeks_cpu(
+    cfg: &LookbackCallConfig,
+    estimator: GreekEstimator,
+) -> GreekReport {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => {
+            let base = lookback_call_price_mc_cpu(cfg);
+            let mut estimates = Vec::new();
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Delta,
+                base,
+                cfg.s0,
+                bump_spot(cfg.s0),
+                |mut c: LookbackCallConfig, value| {
+                    c.s0 = value;
+                    c
+                },
+                *cfg,
+                lookback_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on spot",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Vega,
+                base,
+                cfg.sigma,
+                bump_volatility(cfg.sigma),
+                |mut c: LookbackCallConfig, value| {
+                    c.sigma = value;
+                    c
+                },
+                *cfg,
+                lookback_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on volatility",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Rho,
+                base,
+                cfg.r,
+                bump_rate(),
+                |mut c: LookbackCallConfig, value| {
+                    c.r = value;
+                    c
+                },
+                *cfg,
+                lookback_call_price_mc_cpu,
+                false,
+                "central common-random-number finite difference on rate",
+            );
+            push_bump_estimate(
+                &mut estimates,
+                Greek::Theta,
+                base,
+                cfg.t,
+                bump_maturity(cfg.t),
+                |mut c: LookbackCallConfig, value| {
+                    c.t = value;
+                    c
+                },
+                *cfg,
+                lookback_call_price_mc_cpu,
+                true,
+                "conventional calendar theta from central maturity finite difference",
+            );
+            greek_report(
+                PricingWorkloadFamily::LookbackCall,
+                estimator,
+                cfg.n_paths,
+                cfg.n_steps,
+                cfg.seed,
+                base,
+                estimates,
+                vec![
+                    "Lookback Greeks are finite-difference estimates for the discretely monitored payoff.".to_string(),
+                ],
+            )
+        }
+        GreekEstimator::Pathwise | GreekEstimator::LikelihoodRatio => unsupported_greek_report(
+            PricingWorkloadFamily::LookbackCall,
+            estimator,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.seed,
+            lookback_call_price_mc_cpu(cfg),
+            "Pathwise and likelihood-ratio estimators are not exposed for lookback calls yet; use bump-and-revalue.",
+        ),
+    }
+}
+
+pub fn basket_call_greeks_cpu(cfg: &BasketCallConfig, estimator: GreekEstimator) -> GreekReport {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => basket_call_bump_greeks_cpu(cfg),
+        GreekEstimator::Pathwise | GreekEstimator::LikelihoodRatio => unsupported_greek_report(
+            PricingWorkloadFamily::BasketCall,
+            estimator,
+            cfg.n_paths,
+            2,
+            cfg.seed,
+            basket_call_price_mc_cpu(cfg),
+            "Pathwise basket Greeks are mathematically valid for terminal baskets but not exposed yet; bump-and-revalue is the current supported basket estimator.",
+        ),
+    }
+}
+
+pub fn heston_european_call_greeks_cpu(
+    cfg: &HestonEuropeanCallConfig,
+    estimator: GreekEstimator,
+) -> GreekReport {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => heston_call_bump_greeks_cpu(cfg),
+        GreekEstimator::Pathwise | GreekEstimator::LikelihoodRatio => unsupported_greek_report(
+            PricingWorkloadFamily::HestonEuropeanCall,
+            estimator,
+            cfg.n_paths,
+            cfg.n_steps,
+            cfg.seed,
+            heston_european_call_price_mc_cpu(cfg),
+            "Pathwise and likelihood-ratio Heston Greeks require variance-path adjoints or score tracking and are not exposed yet; use bump-and-revalue.",
+        ),
+    }
+}
+
+pub fn price_all_current_greeks_bump_and_revalue_cpu(
+    n_paths: usize,
+    n_steps: usize,
+    seed: u64,
+) -> Vec<GreekReport> {
+    let european = EuropeanCallConfig {
+        n_paths,
+        n_steps,
+        seed,
+        ..EuropeanCallConfig::default()
+    };
+    let asian = ArithmeticAsianCallConfig {
+        n_paths,
+        n_steps,
+        seed: seed.wrapping_add(1),
+        ..ArithmeticAsianCallConfig::default()
+    };
+    let barrier = DownAndOutCallConfig {
+        n_paths,
+        n_steps,
+        seed: seed.wrapping_add(2),
+        ..DownAndOutCallConfig::default()
+    };
+    let lookback = LookbackCallConfig {
+        n_paths,
+        n_steps,
+        seed: seed.wrapping_add(3),
+        ..LookbackCallConfig::default()
+    };
+    let basket = BasketCallConfig {
+        n_paths,
+        seed: seed.wrapping_add(4),
+        ..BasketCallConfig::default()
+    };
+    let heston = HestonEuropeanCallConfig {
+        n_paths,
+        n_steps,
+        seed: seed.wrapping_add(5),
+        ..HestonEuropeanCallConfig::default()
+    };
+
+    vec![
+        european_call_greeks_cpu(&european, GreekEstimator::BumpAndRevalue),
+        arithmetic_asian_call_greeks_cpu(&asian, GreekEstimator::BumpAndRevalue),
+        down_and_out_call_greeks_cpu(&barrier, GreekEstimator::BumpAndRevalue),
+        lookback_call_greeks_cpu(&lookback, GreekEstimator::BumpAndRevalue),
+        basket_call_greeks_cpu(&basket, GreekEstimator::BumpAndRevalue),
+        heston_european_call_greeks_cpu(&heston, GreekEstimator::BumpAndRevalue),
+    ]
+}
+
+fn european_call_bump_greeks_cpu(cfg: &EuropeanCallConfig) -> GreekReport {
+    let base = european_call_price_mc_cpu(cfg);
+    let mut estimates = Vec::new();
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Delta,
+        base,
+        cfg.s0,
+        bump_spot(cfg.s0),
+        |mut c: EuropeanCallConfig, value| {
+            c.s0 = value;
+            c
+        },
+        *cfg,
+        european_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on spot",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Vega,
+        base,
+        cfg.sigma,
+        bump_volatility(cfg.sigma),
+        |mut c: EuropeanCallConfig, value| {
+            c.sigma = value;
+            c
+        },
+        *cfg,
+        european_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on volatility",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Rho,
+        base,
+        cfg.r,
+        bump_rate(),
+        |mut c: EuropeanCallConfig, value| {
+            c.r = value;
+            c
+        },
+        *cfg,
+        european_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on rate",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Theta,
+        base,
+        cfg.t,
+        bump_maturity(cfg.t),
+        |mut c: EuropeanCallConfig, value| {
+            c.t = value;
+            c
+        },
+        *cfg,
+        european_call_price_mc_cpu,
+        true,
+        "conventional calendar theta from central maturity finite difference",
+    );
+    greek_report(
+        PricingWorkloadFamily::EuropeanCall,
+        GreekEstimator::BumpAndRevalue,
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        base,
+        estimates,
+        vec!["Black-Scholes analytic Greeks are available for validation".to_string()],
+    )
+}
+
+fn basket_call_bump_greeks_cpu(cfg: &BasketCallConfig) -> GreekReport {
+    let base = basket_call_price_mc_cpu(cfg);
+    let mut estimates = Vec::new();
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Delta,
+        base,
+        cfg.s01,
+        bump_spot(cfg.s01),
+        |mut c: BasketCallConfig, value| {
+            c.s01 = value;
+            c
+        },
+        *cfg,
+        basket_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on first spot",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Delta2,
+        base,
+        cfg.s02,
+        bump_spot(cfg.s02),
+        |mut c: BasketCallConfig, value| {
+            c.s02 = value;
+            c
+        },
+        *cfg,
+        basket_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on second spot",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Vega,
+        base,
+        cfg.sigma1,
+        bump_volatility(cfg.sigma1),
+        |mut c: BasketCallConfig, value| {
+            c.sigma1 = value;
+            c
+        },
+        *cfg,
+        basket_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on first volatility",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Vega2,
+        base,
+        cfg.sigma2,
+        bump_volatility(cfg.sigma2),
+        |mut c: BasketCallConfig, value| {
+            c.sigma2 = value;
+            c
+        },
+        *cfg,
+        basket_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on second volatility",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Rho,
+        base,
+        cfg.r,
+        bump_rate(),
+        |mut c: BasketCallConfig, value| {
+            c.r = value;
+            c
+        },
+        *cfg,
+        basket_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on rate",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Theta,
+        base,
+        cfg.t,
+        bump_maturity(cfg.t),
+        |mut c: BasketCallConfig, value| {
+            c.t = value;
+            c
+        },
+        *cfg,
+        basket_call_price_mc_cpu,
+        true,
+        "conventional calendar theta from central maturity finite difference",
+    );
+    greek_report(
+        PricingWorkloadFamily::BasketCall,
+        GreekEstimator::BumpAndRevalue,
+        cfg.n_paths,
+        2,
+        cfg.seed,
+        base,
+        estimates,
+        vec![
+            "Basket Greeks use Delta/Delta2 and Vega/Vega2 for the first and second assets."
+                .to_string(),
+        ],
+    )
+}
+
+fn heston_call_bump_greeks_cpu(cfg: &HestonEuropeanCallConfig) -> GreekReport {
+    let base = heston_european_call_price_mc_cpu(cfg);
+    let mut estimates = Vec::new();
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Delta,
+        base,
+        cfg.s0,
+        bump_spot(cfg.s0),
+        |mut c: HestonEuropeanCallConfig, value| {
+            c.s0 = value;
+            c
+        },
+        *cfg,
+        heston_european_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on spot",
+    );
+    let vol_bump = bump_volatility(cfg.v0.max(0.0).sqrt());
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Vega,
+        base,
+        cfg.v0.max(0.0).sqrt(),
+        vol_bump,
+        |mut c: HestonEuropeanCallConfig, value| {
+            c.v0 = value.max(0.0) * value.max(0.0);
+            c
+        },
+        *cfg,
+        heston_european_call_price_mc_cpu,
+        false,
+        "central finite difference on sqrt(v0); theta is held fixed",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Rho,
+        base,
+        cfg.r,
+        bump_rate(),
+        |mut c: HestonEuropeanCallConfig, value| {
+            c.r = value;
+            c
+        },
+        *cfg,
+        heston_european_call_price_mc_cpu,
+        false,
+        "central common-random-number finite difference on rate",
+    );
+    push_bump_estimate(
+        &mut estimates,
+        Greek::Theta,
+        base,
+        cfg.t,
+        bump_maturity(cfg.t),
+        |mut c: HestonEuropeanCallConfig, value| {
+            c.t = value;
+            c
+        },
+        *cfg,
+        heston_european_call_price_mc_cpu,
+        true,
+        "conventional calendar theta from central maturity finite difference",
+    );
+    greek_report(
+        PricingWorkloadFamily::HestonEuropeanCall,
+        GreekEstimator::BumpAndRevalue,
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        base,
+        estimates,
+        vec![
+            "Heston Vega is reported as sensitivity to sqrt(v0) with theta held fixed.".to_string(),
+        ],
+    )
+}
+
+fn european_call_pathwise_greeks_cpu(cfg: &EuropeanCallConfig) -> GreekReport {
+    assert!(cfg.n_paths > 0, "n_paths must be > 0");
+    assert!(cfg.s0 > 0.0, "s0 must be > 0");
+    assert!(cfg.sigma > 0.0, "sigma must be > 0 for pathwise Greeks");
+    assert!(cfg.t > 0.0, "t must be > 0");
+
+    let base = european_call_price_mc_cpu(cfg);
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let sqrt_t = cfg.t.sqrt();
+    let drift_t = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * cfg.t;
+    let vol_t = cfg.sigma * sqrt_t;
+    let discount = (-cfg.r * cfg.t).exp();
+    let mut delta = MomentAccumulator::default();
+    let mut vega = MomentAccumulator::default();
+    let mut rho = MomentAccumulator::default();
+    let mut theta = MomentAccumulator::default();
+
+    for _ in 0..cfg.n_paths {
+        let z = rng.standard_normal();
+        let st = cfg.s0 * (drift_t + vol_t * z).exp();
+        let intrinsic = st - cfg.k;
+        let active = intrinsic > 0.0;
+        let payoff = intrinsic.max(0.0);
+        let discounted_payoff = discount * payoff;
+
+        delta.record(if active { discount * st / cfg.s0 } else { 0.0 });
+        vega.record(if active {
+            discount * st * (-cfg.sigma * cfg.t + sqrt_t * z)
+        } else {
+            0.0
+        });
+        rho.record(if active {
+            discount * (cfg.t * st - cfg.t * payoff)
+        } else {
+            -cfg.t * discounted_payoff
+        });
+        let dst_dt = st * (cfg.r - 0.5 * cfg.sigma * cfg.sigma + cfg.sigma * z / (2.0 * sqrt_t));
+        let d_price_d_maturity = if active {
+            discount * (dst_dt - cfg.r * payoff)
+        } else {
+            -cfg.r * discounted_payoff
+        };
+        theta.record(-d_price_d_maturity);
+    }
+
+    let estimates = vec![
+        single_pass_estimate(
+            Greek::Delta,
+            GreekEstimator::Pathwise,
+            base,
+            delta,
+            "pathwise terminal-GBM Delta",
+        ),
+        single_pass_estimate(
+            Greek::Vega,
+            GreekEstimator::Pathwise,
+            base,
+            vega,
+            "pathwise terminal-GBM Vega",
+        ),
+        single_pass_estimate(
+            Greek::Rho,
+            GreekEstimator::Pathwise,
+            base,
+            rho,
+            "pathwise terminal-GBM Rho",
+        ),
+        single_pass_estimate(
+            Greek::Theta,
+            GreekEstimator::Pathwise,
+            base,
+            theta,
+            "pathwise terminal-GBM conventional calendar Theta",
+        ),
+    ];
+    let mut warnings = vec![
+        "Pathwise Greeks are exposed only for the smooth terminal GBM European-call path; the payoff kink is handled almost surely.".to_string(),
+    ];
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        warnings.push("Pathwise Greek execution currently uses pseudorandom terminal shocks; structured-sampling Greek estimators are not exposed yet.".to_string());
+    }
+    if cfg.technique != MonteCarloTechnique::Standard {
+        warnings.push("Pathwise Greek execution estimates raw single-pass Greeks and does not apply the configured variance-reduction technique.".to_string());
+    }
+
+    greek_report(
+        PricingWorkloadFamily::EuropeanCall,
+        GreekEstimator::Pathwise,
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        base,
+        estimates,
+        warnings,
+    )
+}
+
+fn european_call_likelihood_ratio_greeks_cpu(cfg: &EuropeanCallConfig) -> GreekReport {
+    assert!(cfg.n_paths > 0, "n_paths must be > 0");
+    assert!(cfg.s0 > 0.0, "s0 must be > 0");
+    assert!(
+        cfg.sigma > 0.0,
+        "sigma must be > 0 for likelihood-ratio Greeks"
+    );
+    assert!(cfg.t > 0.0, "t must be > 0");
+
+    let base = european_call_price_mc_cpu(cfg);
+    let mut rng = MonteCarloRng::new(cfg.seed);
+    let sqrt_t = cfg.t.sqrt();
+    let drift_t = (cfg.r - 0.5 * cfg.sigma * cfg.sigma) * cfg.t;
+    let vol_t = cfg.sigma * sqrt_t;
+    let discount = (-cfg.r * cfg.t).exp();
+    let mut delta = MomentAccumulator::default();
+    let mut vega = MomentAccumulator::default();
+    let mut rho = MomentAccumulator::default();
+
+    for _ in 0..cfg.n_paths {
+        let z = rng.standard_normal();
+        let st = cfg.s0 * (drift_t + vol_t * z).exp();
+        let discounted_payoff = discount * (st - cfg.k).max(0.0);
+        delta.record(discounted_payoff * z / (cfg.s0 * cfg.sigma * sqrt_t));
+        let vega_score = (z * z - 1.0) / cfg.sigma - sqrt_t * z;
+        vega.record(discounted_payoff * vega_score);
+        rho.record(discounted_payoff * (z / (cfg.sigma * sqrt_t) - cfg.t));
+    }
+
+    let estimates = vec![
+        single_pass_estimate(
+            Greek::Delta,
+            GreekEstimator::LikelihoodRatio,
+            base,
+            delta,
+            "likelihood-ratio terminal-GBM Delta",
+        ),
+        single_pass_estimate(
+            Greek::Vega,
+            GreekEstimator::LikelihoodRatio,
+            base,
+            vega,
+            "likelihood-ratio terminal-GBM Vega",
+        ),
+        single_pass_estimate(
+            Greek::Rho,
+            GreekEstimator::LikelihoodRatio,
+            base,
+            rho,
+            "likelihood-ratio terminal-GBM Rho",
+        ),
+    ];
+    let mut warnings = vec![
+        "Likelihood-ratio estimator currently exposes Delta, Vega, and Rho for terminal GBM European calls.".to_string(),
+        "Delta is generally the most useful LR Greek here; pathwise Delta usually has lower variance for vanilla calls.".to_string(),
+    ];
+    if cfg.sampling != SamplingMethod::Pseudorandom {
+        warnings.push("Likelihood-ratio Greek execution currently uses pseudorandom terminal shocks; structured-sampling LR estimators are not exposed yet.".to_string());
+    }
+    if cfg.technique != MonteCarloTechnique::Standard {
+        warnings.push("Likelihood-ratio Greek execution estimates raw single-pass Greeks and does not apply the configured variance-reduction technique.".to_string());
+    }
+
+    greek_report(
+        PricingWorkloadFamily::EuropeanCall,
+        GreekEstimator::LikelihoodRatio,
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        base,
+        estimates,
+        warnings,
+    )
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct MomentAccumulator {
+    sum: f64,
+    sq_sum: f64,
+    count: usize,
+}
+
+impl MomentAccumulator {
+    fn record(&mut self, value: f64) {
+        self.sum += value;
+        self.sq_sum += value * value;
+        self.count += 1;
+    }
+
+    fn mean_stderr(self) -> (f64, f64) {
+        if self.count == 0 {
+            return (0.0, 0.0);
+        }
+        let n = self.count as f64;
+        let mean = self.sum / n;
+        let variance = if self.count > 1 {
+            ((self.sq_sum - self.sum * self.sum / n) / (n - 1.0)).max(0.0)
+        } else {
+            0.0
+        };
+        (mean, (variance / n).sqrt())
+    }
+}
+
+fn single_pass_estimate(
+    greek: Greek,
+    estimator: GreekEstimator,
+    base: EuropeanCallResult,
+    moments: MomentAccumulator,
+    note: &str,
+) -> GreekEstimate {
+    let (value, stderr) = moments.mean_stderr();
+    GreekEstimate {
+        greek,
+        estimator,
+        value,
+        stderr: Some(stderr),
+        bump_size: None,
+        base_price: base.price,
+        bumped_up_price: None,
+        bumped_down_price: None,
+        stderr_estimate_kind: "sample standard error of single-pass Greek estimator".to_string(),
+        notes: vec![note.to_string()],
+    }
+}
+
+fn greek_report(
+    workload: PricingWorkloadFamily,
+    estimator: GreekEstimator,
+    paths: usize,
+    steps: usize,
+    seed: u64,
+    base: EuropeanCallResult,
+    estimates: Vec<GreekEstimate>,
+    warnings: Vec<String>,
+) -> GreekReport {
+    GreekReport {
+        workload,
+        estimator,
+        paths,
+        steps,
+        seed,
+        base_price: base.price,
+        base_stderr: base.stderr,
+        estimated_runtime_ms: None,
+        estimates,
+        warnings,
+    }
+}
+
+fn unsupported_greek_report(
+    workload: PricingWorkloadFamily,
+    estimator: GreekEstimator,
+    paths: usize,
+    steps: usize,
+    seed: u64,
+    base: EuropeanCallResult,
+    warning: &str,
+) -> GreekReport {
+    greek_report(
+        workload,
+        estimator,
+        paths,
+        steps,
+        seed,
+        base,
+        Vec::new(),
+        vec![warning.to_string()],
+    )
+}
+
+fn push_bump_estimate<C, F, P>(
+    estimates: &mut Vec<GreekEstimate>,
+    greek: Greek,
+    base: EuropeanCallResult,
+    center: f64,
+    bump: f64,
+    set_parameter: F,
+    cfg: C,
+    price: P,
+    reverse_sign: bool,
+    note: &str,
+) where
+    C: Copy,
+    F: Fn(C, f64) -> C,
+    P: Fn(&C) -> EuropeanCallResult,
+{
+    let up_cfg = set_parameter(cfg, center + bump);
+    let down_cfg = set_parameter(cfg, (center - bump).max(parameter_floor(greek)));
+    let up = price(&up_cfg);
+    let down = price(&down_cfg);
+    let effective_bump = ((center + bump) - (center - bump).max(parameter_floor(greek))) * 0.5;
+    let raw_value = if effective_bump > 0.0 {
+        (up.price - down.price) / (2.0 * effective_bump)
+    } else {
+        0.0
+    };
+    let value = if reverse_sign { -raw_value } else { raw_value };
+    let stderr = if effective_bump > 0.0 {
+        Some((up.stderr * up.stderr + down.stderr * down.stderr).sqrt() / (2.0 * effective_bump))
+    } else {
+        Some(0.0)
+    };
+
+    estimates.push(GreekEstimate {
+        greek,
+        estimator: GreekEstimator::BumpAndRevalue,
+        value,
+        stderr,
+        bump_size: Some(effective_bump),
+        base_price: base.price,
+        bumped_up_price: Some(up.price),
+        bumped_down_price: Some(down.price),
+        stderr_estimate_kind: "conservative independent-leg standard-error propagation; common random numbers usually reduce actual noise".to_string(),
+        notes: vec![note.to_string()],
+    });
+}
+
+fn parameter_floor(greek: Greek) -> f64 {
+    match greek {
+        Greek::Delta | Greek::Delta2 | Greek::Vega | Greek::Vega2 | Greek::Theta => {
+            f64::MIN_POSITIVE
+        }
+        Greek::Rho => -1.0,
+    }
+}
+
+fn bump_spot(spot: f64) -> f64 {
+    (spot.abs() * 0.01).max(0.01)
+}
+
+fn bump_volatility(volatility: f64) -> f64 {
+    (volatility.abs() * 0.05).max(0.005)
+}
+
+fn bump_rate() -> f64 {
+    0.001
+}
+
+fn bump_maturity(t: f64) -> f64 {
+    (1.0_f64 / 365.0).min(t * 0.25)
 }
 
 fn validate_lookback_call_config(cfg: &LookbackCallConfig) {

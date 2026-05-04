@@ -39,7 +39,7 @@ Today we do not yet have:
 - native CUDA kernel execution
 - native GPU structured sampling
 - dedicated native GPU hardware CI
-- broad market-leader coverage across more simulation families such as American-style exercise, Greeks, adaptive MLMC, or scientific UQ workflows
+- broad market-leader coverage across more simulation families such as American-style exercise, advanced adjoint Greeks, adaptive MLMC, or scientific UQ workflows
 
 ## What Is Working Well
 
@@ -49,9 +49,9 @@ The fair release step-wise benchmark remains comfortably ahead of the available 
 
 Current release results:
 
-- Rust CPU European step-wise: `11.169 ms`
-- NumPy European step-wise: `89.829 ms`
-- Numba European step-wise: `222.752 ms`
+- Rust CPU European step-wise: `12.845 ms`
+- NumPy European step-wise: `76.321 ms`
+- Numba European step-wise: `222.326 ms`
 
 That is a real win, not just a specialized fast-path artifact.
 

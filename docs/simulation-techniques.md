@@ -240,6 +240,29 @@ Practical notes:
 - the QuantLib lane currently uses `AnalyticHestonEngine` as a reference comparison when available; it is labeled as analytic, not a Monte Carlo path-runtime competitor
 - native Metal and CUDA execution are not implemented for Heston yet; CPU is the correctness reference
 
+### 0.95. Greeks And Risk Sensitivities
+
+Status:
+
+- supported now through structured `GreekReport` and `GreekEstimate` outputs
+- bump-and-revalue Greeks are available across the current CPU workload families: European, arithmetic Asian, down-and-out, fixed-strike lookback, two-asset basket, and Heston European
+- European terminal-GBM pathwise Greeks are available for Delta, Vega, Rho, and conventional calendar Theta
+- European terminal-GBM likelihood-ratio Greeks are available for Delta, Vega, and Rho
+- benchmarked against Black-Scholes analytic Delta where the reference is exact
+
+Why it matters:
+
+- risk sensitivities are table-stakes for serious quantitative-finance workflows
+- explicit estimator selection makes the library easier for humans and agents to trust
+- single-pass pathwise/LR estimators create a speed path beyond brute-force finite differences when assumptions are valid
+
+Practical notes:
+
+- bump-and-revalue uses common random numbers and reports bumped prices, bump sizes, and conservative standard-error propagation
+- unsupported pathwise/LR requests return structured warnings instead of silently pretending the estimator is valid
+- barrier and lookback pathwise estimators are intentionally not exposed yet because discontinuities need separate treatment
+- Heston pathwise/LR Greeks are deferred until variance-path adjoints or score tracking are implemented
+
 ### 1. Multilevel Monte Carlo
 
 Status:

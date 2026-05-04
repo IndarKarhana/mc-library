@@ -43,6 +43,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add arithmetic Asian and down-and-out call CPU workload families with deterministic reference execution.
 - `done` Add fixed-strike lookback call CPU workload with deterministic reference execution.
 - `done` Add Heston stochastic-volatility European-call CPU workload with Black-Scholes-limit validation.
+- `done` Add structured CPU Greek reports with bump-and-revalue breadth plus European pathwise and likelihood-ratio estimators.
 - `done` Add first explicit sampling-method abstraction with pseudorandom, randomized Halton, and Latin hypercube CPU execution paths.
 
 ## Phase 4: NVIDIA Runtime
@@ -95,6 +96,7 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add down-and-out CPU and Apple Metal benchmark coverage.
 - `done` Add fixed-strike lookback CPU benchmark coverage.
 - `done` Add Heston CPU benchmark and Black-Scholes-limit quality coverage.
+- `done` Add Greek benchmark coverage with Black-Scholes Delta accuracy gates and all-workload bump-and-revalue breadth tracking.
 - `done` Add first randomized-Halton benchmark and estimator-quality coverage.
 - `done` Add first Latin-hypercube benchmark and estimator-quality coverage.
 - `done` Add compact benchmark profile for fast local gates without overwriting full competitiveness artifacts.

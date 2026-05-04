@@ -4,18 +4,20 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use mc_core::{
     arithmetic_asian_call_price_mc_cpu, arithmetic_asian_call_price_mlmc_cpu,
-    basket_call_price_mc_cpu, compare_arithmetic_asian_sampling_quality_cpu,
-    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
-    compare_european_call_realized_error_cpu, compare_european_call_sampling_quality_cpu,
-    compare_heston_black_scholes_limit_cpu, compare_lookback_call_sampling_quality_cpu,
-    down_and_out_call_price_mc_cpu, european_call_price_mc_cpu_stepwise,
+    basket_call_price_mc_cpu, black_scholes_european_call_greeks,
+    compare_arithmetic_asian_sampling_quality_cpu, compare_basket_call_sampling_quality_cpu,
+    compare_down_and_out_sampling_quality_cpu, compare_european_call_realized_error_cpu,
+    compare_european_call_sampling_quality_cpu, compare_heston_black_scholes_limit_cpu,
+    compare_lookback_call_sampling_quality_cpu, down_and_out_call_price_mc_cpu,
+    european_call_greeks_cpu, european_call_price_mc_cpu_stepwise,
     european_call_price_mc_cpu_terminal, gaussian_uncertainty_mean_cpu,
-    generate_standard_normals_cpu, heston_european_call_price_mc_cpu, lookback_call_price_mc_cpu,
-    plan_execution, solve_arithmetic_asian_mlmc_tolerance_cpu, ArithmeticAsianCallConfig,
-    ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcToleranceConfig, BackendId, BackendPreference,
-    BackendSupportReport, BasketCallConfig, DownAndOutCallConfig, EuropeanCallConfig,
-    GaussianUncertaintyConfig, HestonEuropeanCallConfig, LookbackCallConfig, MonteCarloTechnique,
-    PlannerMode, RunConfig, SamplingMethod,
+    generate_standard_normals_cpu, heston_european_call_greeks_cpu,
+    heston_european_call_price_mc_cpu, lookback_call_price_mc_cpu, plan_execution,
+    price_all_current_greeks_bump_and_revalue_cpu, solve_arithmetic_asian_mlmc_tolerance_cpu,
+    ArithmeticAsianCallConfig, ArithmeticAsianMlmcConfig, ArithmeticAsianMlmcToleranceConfig,
+    BackendId, BackendPreference, BackendSupportReport, BasketCallConfig, DownAndOutCallConfig,
+    EuropeanCallConfig, GaussianUncertaintyConfig, Greek, GreekEstimator, HestonEuropeanCallConfig,
+    LookbackCallConfig, MonteCarloTechnique, PlannerMode, RunConfig, SamplingMethod,
 };
 #[cfg(feature = "metal-native")]
 use mc_core::{
@@ -33,6 +35,8 @@ use crate::result::{BenchmarkReport, BenchmarkResult};
 const MC_PATHS: usize = 100_000;
 const MC_STEPS: usize = 64;
 const MC_REPEATS: usize = 3;
+const GREEK_PATHS: usize = 50_000;
+const GREEK_STEPS: usize = 64;
 const QMC_GENERATION_POINTS: usize = 100_000;
 const QMC_GENERATION_DIMENSIONS: usize = 64;
 const ASIAN_MLMC_MIN_STEP_UPDATES: usize = 100_000;
@@ -165,6 +169,11 @@ fn run_full_benchmarks() -> BenchmarkReport {
         ),
         benchmark_mc_rust_cpu_heston_european_stepwise(MC_REPEATS),
         benchmark_mc_rust_cpu_heston_black_scholes_limit(),
+        benchmark_mc_rust_cpu_european_greeks(GreekEstimator::BumpAndRevalue),
+        benchmark_mc_rust_cpu_european_greeks(GreekEstimator::Pathwise),
+        benchmark_mc_rust_cpu_european_greeks(GreekEstimator::LikelihoodRatio),
+        benchmark_mc_rust_cpu_heston_black_scholes_limit_greeks(),
+        benchmark_mc_rust_cpu_all_workload_bump_greeks(),
         benchmark_mc_rust_cpu_asian_structured(
             MC_REPEATS,
             SamplingMethod::RandomizedHalton,
@@ -417,6 +426,11 @@ fn run_compact_benchmarks_inner() -> BenchmarkReport {
         benchmark_mc_rust_cpu_lookback_stepwise(1),
         benchmark_mc_rust_cpu_heston_european_stepwise(1),
         benchmark_mc_rust_cpu_heston_black_scholes_limit(),
+        benchmark_mc_rust_cpu_european_greeks(GreekEstimator::BumpAndRevalue),
+        benchmark_mc_rust_cpu_european_greeks(GreekEstimator::Pathwise),
+        benchmark_mc_rust_cpu_european_greeks(GreekEstimator::LikelihoodRatio),
+        benchmark_mc_rust_cpu_heston_black_scholes_limit_greeks(),
+        benchmark_mc_rust_cpu_all_workload_bump_greeks(),
         benchmark_mc_rust_cpu_european_call_randomized_halton_control_variate_quality(),
         benchmark_mc_rust_cpu_european_call_latin_hypercube(1),
         benchmark_mc_rust_cpu_european_call_latin_hypercube_control_variate_quality(),
@@ -505,6 +519,21 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         .iter()
         .find(|r| r.benchmark_name == "mc_cpu_heston_european_call_rust")
         .and_then(|r| r.runtime_ms());
+    let european_greek_pathwise = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_greeks_pathwise_rust")
+        .and_then(|r| r.runtime_ms());
+    let european_greek_pathwise_error = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_european_call_greeks_pathwise_rust")
+        .and_then(|r| r.metric_value);
+    let all_greek_count = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_all_workload_greeks_bump_rust")
+        .and_then(|r| r.metric_value);
     let measured_planner_accuracy = report
         .results
         .iter()
@@ -694,6 +723,14 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
             runtime
         ));
     }
+    if let (Some(runtime), Some(abs_error)) =
+        (european_greek_pathwise, european_greek_pathwise_error)
+    {
+        out.push_str(&format!(
+            "- European pathwise Greeks are live (`{:.3} ms`) with Delta abs error `{:.6}` vs Black-Scholes.\n",
+            runtime, abs_error
+        ));
+    }
     if let Some(accuracy) = measured_planner_accuracy {
         out.push_str(&format!(
             "- Measured planner choice accuracy: `{:.1}%`\n",
@@ -714,7 +751,13 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         out.push_str("Maintain lead plan:\n");
         out.push_str("- Keep the step-wise benchmark as the primary competitive claim.\n");
         out.push_str("- Keep RNG and loop hot path allocation-free.\n");
-        out.push_str("- Keep breadth claims tied to the workloads we have actually benchmarked: European, Heston European, arithmetic Asian, down-and-out, lookback, basket, and Gaussian UQ.\n");
+        out.push_str("- Keep breadth claims tied to the workloads we have actually benchmarked: European, Heston European, arithmetic Asian, down-and-out, lookback, basket, Greeks, and Gaussian UQ.\n");
+        if let Some(count) = all_greek_count {
+            out.push_str(&format!(
+                "- Greek breadth is live with `{:.0}` bump-and-revalue estimates across current CPU workload families.\n",
+                count
+            ));
+        }
         if quantlib_unavailable {
             out.push_str("- QuantLib comparison lane is wired but currently unavailable in this environment; install QuantLib-Python to populate the selected-workload scoreboard.\n");
         }
@@ -3416,6 +3459,126 @@ fn benchmark_mc_rust_cpu_heston_black_scholes_limit() -> BenchmarkResult {
         },
         metric_name: Some("abs_error_vs_black_scholes".to_string()),
         metric_value: Some(comparison.abs_error),
+    }
+}
+
+fn benchmark_mc_rust_cpu_european_greeks(estimator: GreekEstimator) -> BenchmarkResult {
+    let cfg = EuropeanCallConfig {
+        n_paths: GREEK_PATHS,
+        n_steps: GREEK_STEPS,
+        seed: 9_401,
+        ..EuropeanCallConfig::default()
+    };
+    let analytic = black_scholes_european_call_greeks(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t);
+
+    let started = Instant::now();
+    let report = european_call_greeks_cpu(&cfg, estimator);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let delta = report
+        .estimate(Greek::Delta)
+        .expect("European Greek benchmark should emit Delta");
+    let abs_error = (delta.value - analytic.delta).abs();
+    let estimator_name = greek_estimator_name(estimator);
+
+    BenchmarkResult {
+        benchmark_name: format!("mc_cpu_european_call_greeks_{estimator_name}_rust"),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::european_call_greeks_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some(format!("european_call_greeks_{estimator_name}")),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("abs_delta_error_vs_black_scholes".to_string()),
+        metric_value: Some(abs_error),
+    }
+}
+
+fn benchmark_mc_rust_cpu_heston_black_scholes_limit_greeks() -> BenchmarkResult {
+    let sigma = 0.2_f64;
+    let variance = sigma * sigma;
+    let cfg = HestonEuropeanCallConfig {
+        v0: variance,
+        theta: variance,
+        vol_of_vol: 0.0,
+        rho: 0.0,
+        n_paths: GREEK_PATHS,
+        n_steps: GREEK_STEPS,
+        seed: 9_402,
+        ..HestonEuropeanCallConfig::default()
+    };
+    let analytic = black_scholes_european_call_greeks(cfg.s0, cfg.k, cfg.r, sigma, cfg.t);
+
+    let started = Instant::now();
+    let report = heston_european_call_greeks_cpu(&cfg, GreekEstimator::BumpAndRevalue);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let delta = report
+        .estimate(Greek::Delta)
+        .expect("Heston Greek benchmark should emit Delta");
+    let abs_error = (delta.value - analytic.delta).abs();
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_heston_greeks_black_scholes_limit_delta_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::heston_european_call_greeks_cpu".to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("heston_greeks_bump_black_scholes_limit".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("abs_delta_error_vs_black_scholes".to_string()),
+        metric_value: Some(abs_error),
+    }
+}
+
+fn benchmark_mc_rust_cpu_all_workload_bump_greeks() -> BenchmarkResult {
+    let started = Instant::now();
+    let reports =
+        price_all_current_greeks_bump_and_revalue_cpu(GREEK_PATHS / 2, GREEK_STEPS, 9_403);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+    let estimate_count = reports
+        .iter()
+        .map(|report| report.estimates.len())
+        .sum::<usize>();
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_all_workload_greeks_bump_rust".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::price_all_current_greeks_bump_and_revalue_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("all_current_workload_greeks_bump_and_revalue".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            estimate_count as f64
+        } else {
+            estimate_count as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("greek_estimate_count".to_string()),
+        metric_value: Some(estimate_count as f64),
+    }
+}
+
+fn greek_estimator_name(estimator: GreekEstimator) -> &'static str {
+    match estimator {
+        GreekEstimator::BumpAndRevalue => "bump",
+        GreekEstimator::Pathwise => "pathwise",
+        GreekEstimator::LikelihoodRatio => "likelihood_ratio",
     }
 }
 
