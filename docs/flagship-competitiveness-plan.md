@@ -126,22 +126,29 @@ Evidence:
 
 ## Phase 4: Become AI-Agent Native
 
-Status: `in-progress`
+Status: `done`
 
 Deliverables:
 
-- `todo` Add machine-readable tool manifest.
-- `todo` Add JSON schema export for stable tool requests and responses.
-- `todo` Add run manifest structs for executed simulations.
-- `todo` Add agent-safe wrappers for validate, recommend, plan, execute, compare, benchmark, and reproduce.
-- `todo` Add deterministic dry-run planning surface for cost and method comparison.
-- `todo` Add reproducibility manifests to pricing, Greek, benchmark, and planner outputs, including seed, backend, method, estimator, build, hardware, warnings, and reference metadata.
-- `todo` Add stable agent-facing examples that show exact request/response payloads.
+- `done` Add machine-readable tool manifest.
+- `done` Add JSON schema export for stable tool requests and responses.
+- `done` Add run manifest structs for executed simulations.
+- `done` Add agent-safe wrappers for validate, recommend, plan, execute, compare, benchmark, and reproduce.
+- `done` Add deterministic dry-run planning surface for cost and method comparison.
+- `done` Add reproducibility manifests to pricing, Greek, benchmark, and planner outputs, including seed, backend, method, estimator, build, hardware, warnings, and reference metadata.
+- `done` Add stable agent-facing examples that show exact request/response payloads.
 
 Definition of done:
 
 - An AI agent can validate a simulation, choose a method/backend, run it, compare alternatives, and cite exact reproducibility metadata without reading source code.
 - Agent tools can be called safely without hidden global state or ambiguous free-form outputs.
+
+Evidence:
+
+- Agent tools: `python/mc_library/agent.py`
+- Agent tests: `python/tests/test_agent_surface.py`
+- Agent docs: `docs/agent-tooling.md`
+- Exact payload examples: `docs/agent-examples.json`
 
 ## Phase 5: Match JAX/CuPy/PyTorch Accelerator Credibility
 
@@ -203,10 +210,9 @@ Definition of done:
 
 These are the remaining durable phases before a serious v1:
 
-1. Phase 4: AI-agent-native manifests, schemas, and tool wrappers.
-2. Phase 5: accelerator credibility, competitor CI, and native CUDA.
-3. Phase 6: measured planner intelligence and method comparison surfaces.
-4. Phase 7: broader product/model/UQ coverage.
+1. Phase 5: accelerator credibility, competitor CI, and native CUDA.
+2. Phase 6: measured planner intelligence and method comparison surfaces.
+3. Phase 7: broader product/model/UQ coverage.
 
 ## Always-Next Rule
 

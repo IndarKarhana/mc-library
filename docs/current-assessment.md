@@ -34,6 +34,11 @@ Today we have:
   - dependency-free pricing and European Greek helpers
   - `manifest`, `explain()`, and `reproduce()` result concepts
   - install profiles, error-code docs, docs-site skeleton, notebooks, and package build workflow
+- Phase 4 AI-agent-native surface:
+  - machine-readable tool manifest
+  - JSON schema export
+  - agent-safe validate, recommend, plan, execute, compare, benchmark, and reproduce wrappers
+  - `agent-run.v1` manifests with seed, backend, method, estimator, build, hardware, warnings, and reference metadata
 - backend contracts, discovery scaffolding, and explicit fallback execution paths for NVIDIA and Apple
 - host-side native CUDA and Metal staging gates with kernel-manifest metadata and compile-time validation
 - a real native Metal execution path on macOS using in-process Rust host integration and cached pipelines

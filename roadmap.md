@@ -117,10 +117,10 @@ This roadmap is a living document and must be updated with every meaningful scop
 - `done` Add a machine-readable Monte Carlo method capability catalog for supported and planned techniques.
 - `done` Add first Python-facing wrapper scaffold for method recommendations and benchmark audits.
 - `done` Extend method recommendations with machine-readable `method_id` and first MLMC recommendation path.
-- `todo` Add machine-readable tool manifest and schema export for stable agent integration.
-- `todo` Add reproducibility run manifests for pricing, Greek, benchmark, and planner outputs.
-- `in-progress` Add explain-plan and run-manifest helpers as first-class agent-facing surfaces.
-- `in-progress` Add Python-facing agent wrappers that preserve typed, explainable contracts.
+- `done` Add machine-readable tool manifest and schema export for stable agent integration.
+- `done` Add reproducibility run manifests for pricing, Greek, benchmark, and planner outputs.
+- `done` Add explain-plan and run-manifest helpers as first-class agent-facing surfaces.
+- `done` Add Python-facing agent wrappers that preserve typed, explainable contracts.
 
 ## Phase 8: Advanced Simulation Techniques
 
@@ -151,7 +151,7 @@ See `docs/flagship-competitiveness-plan.md` for the durable execution sequence.
 - `done` Phase 1: Beat SciPy QMC on structured sampling for targeted workloads.
 - `done` Phase 2: Beat QuantLib on selected Monte Carlo workloads with a capability catalog, Greek matrix, reference fixture registry, and QuantLib CI environment.
 - `done` Phase 3: Become the most user-friendly Monte Carlo library with Python-first APIs, packaging, docs, and release discipline.
-- `in-progress` Phase 4: Become AI-agent native with manifests, schemas, and safe tool wrappers.
+- `done` Phase 4: Become AI-agent native with manifests, schemas, and safe tool wrappers.
 - `todo` Phase 5: Match JAX/CuPy/PyTorch accelerator credibility with native CUDA, hardware CI, and competitor environments.
 - `in-progress` Phase 6: Turn planner intelligence into a measured advantage with benchmark-backed winner databases and method comparison surfaces.
 - `todo` Phase 7: Broaden product/model/UQ coverage with documented assumptions, references, Greeks, and unsupported states.
@@ -171,9 +171,8 @@ See `docs/flagship-competitiveness-plan.md` for the durable execution sequence.
 
 ## Remaining V1 Completion Count
 
-There are `4` flagship completion phases remaining:
+There are `3` flagship completion phases remaining:
 
-1. Finish Phase 4 AI-agent manifests, schemas, and safe tool wrappers.
-2. Finish Phase 5 accelerator credibility, competitor CI, and native CUDA.
-3. Finish Phase 6 measured planner intelligence.
-4. Finish Phase 7 broader product/model/UQ coverage.
+1. Finish Phase 5 accelerator credibility, competitor CI, and native CUDA.
+2. Finish Phase 6 measured planner intelligence.
+3. Finish Phase 7 broader product/model/UQ coverage.

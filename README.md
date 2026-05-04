@@ -51,6 +51,27 @@ print(greeks.greeks)
 The Python helpers are dependency-free reference UX helpers. Timing claims
 remain tied to Rust benchmark artifacts.
 
+## Agent Tool Example
+
+```python
+from mc_library import agent_execute, agent_plan, agent_tool_manifest
+
+print(agent_tool_manifest()["schema_version"])
+
+plan = agent_plan({
+    "workload": "european_call",
+    "config": {"n_paths": 10_000, "n_steps": 64, "seed": 42}
+})
+
+run = agent_execute({
+    "workload": "european_call",
+    "config": {"n_paths": 10_000, "n_steps": 64, "seed": 42}
+})
+
+print(plan["plan"])
+print(run["manifest"])
+```
+
 ## Expressive API Example
 
 ```rust

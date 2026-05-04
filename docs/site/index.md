@@ -8,6 +8,6 @@ Start here:
 - `quickstart.md`: install and price the first option.
 - `api-reference.md`: current Python public API.
 - `benchmark-interpretation.md`: how to read timing and accuracy claims.
+- `agent-tools.md`: stable agent-safe request/response wrappers.
 - `migration-notes.md`: what is stable today and what will change as compiled
   Python bindings land.
-

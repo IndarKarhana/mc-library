@@ -42,6 +42,18 @@ Returns `GreekReport` with:
 - `recommend_method(...)`
 - `run_benchmarks(...)`
 
+## Agent Tools
+
+- `agent_tool_manifest()`
+- `export_json_schemas()`
+- `agent_validate(request)`
+- `agent_recommend(request)`
+- `agent_plan(request)`
+- `agent_execute(request)`
+- `agent_compare(request)`
+- `agent_benchmark(request=None)`
+- `agent_reproduce(request)`
+
 Benchmark helpers call the Rust benchmark harness and should be used for
 local audit or release artifact generation, not as a low-latency API.
 
@@ -54,4 +66,3 @@ Configuration problems raise `McConfigurationError`, which exposes:
 - `suggestion`
 
 See `docs/error-codes.md`.
-

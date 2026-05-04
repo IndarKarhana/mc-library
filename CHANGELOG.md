@@ -10,4 +10,5 @@
   `reproduce()`.
 - Added Phase 2 QuantLib competitiveness catalog, reference fixtures, and
   QuantLib benchmark CI profile.
-
+- Added Phase 4 agent-native tool manifest, JSON-schema export, safe wrappers,
+  run manifests, and exact request/response examples.

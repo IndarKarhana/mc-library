@@ -66,7 +66,13 @@ Higher-level runtime calls once backend contracts, manifests, and cross-backend 
 Current status:
 
 - `explain_execution_plan` exists as the first lightweight planner explanation helper
-- structured run manifests are still pending
+- Python agent tool manifest and JSON-schema export are live through
+  `agent_tool_manifest()` and `export_json_schemas()`
+- Python agent-safe wrappers are live for validate, recommend, plan, execute,
+  compare, benchmark, and reproduce
+- `agent-run.v1` manifests attach seed, backend, method, estimator, config,
+  build, hardware, warnings, reference, and determinism metadata to wrapper
+  outputs
 
 ## Tool-Readiness Checklist
 

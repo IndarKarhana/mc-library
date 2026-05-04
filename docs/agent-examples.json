@@ -1,0 +1,96 @@
+{
+  "schema_version": "agent-examples.v1",
+  "plan_request": {
+    "workload": "european_call",
+    "config": {
+      "n_paths": 128,
+      "n_steps": 4,
+      "seed": 5
+    },
+    "preferences": {
+      "prefer_accuracy": false
+    }
+  },
+  "plan_response_core": {
+    "ok": true,
+    "plan": {
+      "dry_run": true,
+      "workload": "european_call",
+      "backend": "python_reference",
+      "method_id": "control_variates",
+      "sampling": "pseudorandom",
+      "technique": "control_variate",
+      "estimated_cost": {
+        "confidence": "low",
+        "estimated_runtime_ms": null,
+        "estimated_peak_memory_mb": 0.004
+      },
+      "rejected_methods": [
+        {
+          "method_id": "multilevel_monte_carlo",
+          "reason": "current MLMC recommendation surface is arithmetic Asian focused"
+        }
+      ],
+      "notes": [
+        "Dry-run planning does not execute simulation.",
+        "Python reference backend is selected for stable agent examples; Rust benchmark artifacts carry performance claims."
+      ]
+    },
+    "manifest_core": {
+      "schema_version": "agent-run.v1",
+      "tool": "mc.plan",
+      "workload": "european_call",
+      "seed": 5,
+      "backend": "python_reference",
+      "method": "control_variates",
+      "estimator": null,
+      "config": {
+        "n_paths": 128,
+        "n_steps": 4,
+        "seed": 5
+      },
+      "warnings": [
+        "antithetic may be useful when control-variate assumptions are unavailable",
+        "structured sampling can improve estimator quality but is slower in current benchmarks"
+      ],
+      "reference": null
+    }
+  },
+  "execute_request": {
+    "workload": "european_call",
+    "config": {
+      "n_paths": 128,
+      "n_steps": 4,
+      "seed": 5
+    }
+  },
+  "execute_response_core": {
+    "ok": true,
+    "result": {
+      "price": 9.688376230928757,
+      "stderr": 1.293964086003199,
+      "explanation": "European call priced with Python reference Monte Carlo: price=9.688376, stderr=1.293964, paths=128, steps=4, seed=5.",
+      "warnings": [
+        "Python helper is for ergonomics and reproducibility demos; use Rust artifacts for performance claims."
+      ]
+    },
+    "manifest_core": {
+      "schema_version": "agent-run.v1",
+      "tool": "mc.execute",
+      "workload": "european_call",
+      "seed": 5,
+      "backend": "python_reference",
+      "method": "python_reference",
+      "estimator": null,
+      "config": {
+        "n_paths": 128,
+        "n_steps": 4,
+        "seed": 5
+      },
+      "warnings": [
+        "Python helper is for ergonomics and reproducibility demos; use Rust artifacts for performance claims."
+      ],
+      "reference": "black_scholes_european_call_atm_1y"
+    }
+  }
+}
