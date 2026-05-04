@@ -15,6 +15,7 @@ import sys
 import time
 import warnings
 from dataclasses import asdict, dataclass
+from importlib import metadata
 from typing import Any
 
 
@@ -33,6 +34,13 @@ class LibraryResult:
 
 def has_module(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+def package_version(distribution_name: str) -> str | None:
+    try:
+        return metadata.version(distribution_name)
+    except metadata.PackageNotFoundError:
+        return None
 
 
 def benchmark_numpy(n_paths: int, n_steps: int, repeats: int, seed: int) -> LibraryResult:
@@ -640,6 +648,12 @@ def main() -> int:
             "paths": args.paths,
             "steps": args.steps,
             "repeats": args.repeats,
+            "package_versions": {
+                "numpy": package_version("numpy"),
+                "numba": package_version("numba"),
+                "scipy": package_version("scipy"),
+                "QuantLib": package_version("QuantLib"),
+            },
         },
         "results": [asdict(r) for r in results],
     }

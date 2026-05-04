@@ -1,0 +1,10 @@
+# Competitor benchmark environment for populated QuantLib lanes.
+#
+# Install with:
+#   python -m pip install -r benchmarks/competitors/requirements-quantlib.txt
+#
+# The package is imported as `QuantLib` by `python_cpu_baselines.py`.
+numpy>=1.24
+scipy>=1.10
+numba>=0.58
+QuantLib>=1.34

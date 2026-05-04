@@ -37,3 +37,59 @@ jobs:
 
       - name: Benchmark harness smoke test
         run: cargo run -p mc-bench -- --output benchmarks/latest-results.json
+
+  quantlib-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: benchmarks/competitors/requirements-quantlib.txt
+
+      - name: Install QuantLib competitor environment
+        run: python -m pip install -r benchmarks/competitors/requirements-quantlib.txt
+
+      - name: Verify QuantLib competitor lanes
+        run: |
+          python benchmarks/competitors/python_cpu_baselines.py \
+            --paths 256 \
+            --steps 4 \
+            --repeats 1 \
+            --seed 7 \
+            > benchmarks/quantlib-preflight.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("benchmarks/quantlib-preflight.json").read_text())
+          quantlib_rows = [
+              row for row in payload["results"]
+              if row["library"] == "quantlib"
+          ]
+          if not quantlib_rows:
+              raise SystemExit("QuantLib rows missing from preflight payload")
+          unavailable = [row for row in quantlib_rows if not row["available"]]
+          if unavailable:
+              raise SystemExit(f"QuantLib rows unavailable: {unavailable}")
+          PY
+
+      - name: Generate QuantLib-populated benchmark artifact
+        run: cargo run -p mc-bench --release -- --output benchmarks/quantlib-ci-results.json
+
+      - name: Upload QuantLib benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantlib-ci-results
+          path: |
+            benchmarks/quantlib-ci-results.json
+            benchmarks/quantlib-preflight.json

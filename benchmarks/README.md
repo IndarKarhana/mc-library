@@ -40,6 +40,8 @@ From `latest-results.json`:
 - `mc_cpu_european_call_greeks_*_rust`: tracks bump-and-revalue, pathwise, and likelihood-ratio European-call Greek timing with Black-Scholes Delta error
 - `mc_cpu_heston_greeks_black_scholes_limit_delta_quality`: tracks Heston Black-Scholes-limit bump Greek quality
 - `mc_cpu_all_workload_greeks_bump_rust`: tracks bump-and-revalue Greek breadth across current CPU workload families
+- `docs/product-model-capability-catalog.json`: machine-readable Phase 2 product/model capability catalog, including Greek estimator support and unsupported states
+- `benchmarks/reference-fixtures.json`: trusted reference fixture registry and explicit caveats for workloads without committed analytic or high-precision fixtures
 - `mc_cpu_basket_call_rust*`: tracks the two-asset terminal basket-call CPU workload across pseudorandom, randomized Halton, Latin hypercube, and scrambled Sobol sampling
 - `mc_cpu_qmc_quality_basket_*`: reports basket `stderr_ratio_vs_pseudorandom`
 - `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): tracked as the specialized fast path
@@ -123,5 +125,16 @@ cargo run -p mc-bench -- --output benchmarks/latest-results.json
 ```bash
 cargo run -p mc-bench --release --features metal-native -- --output benchmarks/release-results.json
 ```
+
+QuantLib-populated competitor environment:
+
+```bash
+python -m pip install -r benchmarks/competitors/requirements-quantlib.txt
+cargo run -p mc-bench --release -- --output benchmarks/quantlib-ci-results.json
+```
+
+CI has a dedicated `quantlib-benchmark` job that installs this environment,
+preflights the QuantLib rows, and uploads `benchmarks/quantlib-ci-results.json`
+as an artifact.
 
 Benchmark thresholds are defined in `docs/benchmark-gates.md` and enforced by `crates/mc-bench/tests/gates.rs`.

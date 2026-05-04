@@ -24,6 +24,11 @@ Today we have:
 - agent-readable structured-sampling guidance and standard-normal diagnostics
 - arithmetic Asian CPU MLMC/MLQMC with explicit per-level estimator metadata, pilot allocation tuning, tolerance planning, and replicated Sobol scrambling
 - benchmark automation and artifact discipline
+- Phase 2 capability evidence for selected QuantLib competitiveness:
+  - product/model capability catalog
+  - Greek estimator matrix
+  - reference fixture registry with explicit caveats
+  - QuantLib-enabled CI benchmark artifact path
 - backend contracts, discovery scaffolding, and explicit fallback execution paths for NVIDIA and Apple
 - host-side native CUDA and Metal staging gates with kernel-manifest metadata and compile-time validation
 - a real native Metal execution path on macOS using in-process Rust host integration and cached pipelines
@@ -40,6 +45,7 @@ Today we do not yet have:
 - native GPU structured sampling
 - dedicated native GPU hardware CI
 - broad market-leader coverage across more simulation families such as American-style exercise, advanced adjoint Greeks, adaptive MLMC, or scientific UQ workflows
+- full QuantLib breadth across calendars, curves, market conventions, and instrument families
 
 ## What Is Working Well
 

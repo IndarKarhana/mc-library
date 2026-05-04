@@ -1,0 +1,457 @@
+{
+  "schema_version": "phase2.v1",
+  "generated_for": "flagship_phase_2_quantlib_competitiveness",
+  "workloads": [
+    {
+      "workload_id": "european_call_gbm",
+      "display_name": "European call under Black-Scholes/GBM",
+      "product_family": "vanilla_option",
+      "model_family": "geometric_brownian_motion",
+      "payoff": "discounted max(S_T - K, 0)",
+      "runtime_surfaces": [
+        "european_call_price_mc_cpu",
+        "european_call_price_mc_cpu_stepwise",
+        "european_call_price_mc_cpu_terminal",
+        "european_call_greeks_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "supported_for_current_gbm_path_family",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom",
+        "randomized_halton",
+        "latin_hypercube",
+        "scrambled_sobol",
+        "scrambled_sobol_brownian_bridge"
+      ],
+      "variance_reduction_support": [
+        "standard",
+        "antithetic",
+        "control_variate"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "supported",
+          "greeks": [
+            "delta",
+            "vega",
+            "rho",
+            "theta"
+          ],
+          "reference_fixture_ids": [
+            "black_scholes_european_call_greeks_atm_1y"
+          ]
+        },
+        "pathwise": {
+          "status": "supported",
+          "greeks": [
+            "delta"
+          ],
+          "reference_fixture_ids": [
+            "black_scholes_european_call_greeks_atm_1y"
+          ]
+        },
+        "likelihood_ratio": {
+          "status": "supported",
+          "greeks": [
+            "delta"
+          ],
+          "reference_fixture_ids": [
+            "black_scholes_european_call_greeks_atm_1y"
+          ]
+        }
+      },
+      "reference_status": "trusted_analytic",
+      "reference_fixture_ids": [
+        "black_scholes_european_call_atm_1y",
+        "black_scholes_european_call_greeks_atm_1y"
+      ],
+      "quantlib_lanes": [
+        "mc_cpu_european_call_quantlib"
+      ],
+      "assumptions": [
+        "flat risk-free rate",
+        "zero dividend yield in tracked benchmark configuration",
+        "constant volatility",
+        "European exercise",
+        "double precision CPU reference"
+      ],
+      "unsupported_states": [
+        "discrete dividends",
+        "term-structure curves",
+        "calendar conventions beyond tracked benchmark setup",
+        "American or Bermudan exercise",
+        "multi-asset payoff variants"
+      ]
+    },
+    {
+      "workload_id": "arithmetic_asian_call_gbm",
+      "display_name": "Arithmetic Asian call under GBM",
+      "product_family": "path_dependent_option",
+      "model_family": "geometric_brownian_motion",
+      "payoff": "discounted max(arithmetic_average(S_t) - K, 0)",
+      "runtime_surfaces": [
+        "arithmetic_asian_call_price_mc_cpu",
+        "arithmetic_asian_call_price_mlmc_cpu",
+        "arithmetic_asian_call_greeks_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "supported_for_current_gbm_path_family",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom",
+        "randomized_halton",
+        "latin_hypercube",
+        "scrambled_sobol_brownian_bridge"
+      ],
+      "variance_reduction_support": [
+        "standard",
+        "control_variate",
+        "mlmc",
+        "mlqmc"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "supported",
+          "greeks": [
+            "delta",
+            "vega",
+            "rho",
+            "theta"
+          ],
+          "reference_fixture_ids": []
+        },
+        "pathwise": {
+          "status": "unsupported",
+          "reason": "not implemented for path-average payoff yet"
+        },
+        "likelihood_ratio": {
+          "status": "unsupported",
+          "reason": "not implemented for path-average payoff yet"
+        }
+      },
+      "reference_status": "no_trusted_fixture_yet",
+      "reference_fixture_ids": [],
+      "reference_caveat": "Current quality reporting uses stochastic stderr and control-variate ratios; no analytic or high-precision arithmetic-Asian fixture is committed yet.",
+      "quantlib_lanes": [],
+      "assumptions": [
+        "discrete arithmetic monitoring at simulation steps",
+        "flat risk-free rate",
+        "constant volatility",
+        "European-style payoff at maturity"
+      ],
+      "unsupported_states": [
+        "geometric-average closed-form comparison",
+        "continuous monitoring",
+        "floating-strike Asian payoff",
+        "term-structure inputs",
+        "pathwise or likelihood-ratio Greeks"
+      ]
+    },
+    {
+      "workload_id": "down_and_out_call_gbm",
+      "display_name": "Down-and-out call under GBM",
+      "product_family": "barrier_option",
+      "model_family": "geometric_brownian_motion",
+      "payoff": "discounted max(S_T - K, 0) when the lower barrier is not touched",
+      "runtime_surfaces": [
+        "down_and_out_call_price_mc_cpu",
+        "down_and_out_call_greeks_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "supported_for_current_gbm_path_family",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom",
+        "randomized_halton",
+        "latin_hypercube",
+        "scrambled_sobol_brownian_bridge"
+      ],
+      "variance_reduction_support": [
+        "standard",
+        "control_variate"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "supported",
+          "greeks": [
+            "delta",
+            "vega",
+            "rho",
+            "theta"
+          ],
+          "reference_fixture_ids": []
+        },
+        "pathwise": {
+          "status": "unsupported",
+          "reason": "barrier discontinuity needs a separate estimator design"
+        },
+        "likelihood_ratio": {
+          "status": "unsupported",
+          "reason": "barrier discontinuity needs a separate estimator design"
+        }
+      },
+      "reference_status": "no_trusted_fixture_yet",
+      "reference_fixture_ids": [],
+      "reference_caveat": "No analytic barrier fixture is committed for the current discrete-monitoring semantics.",
+      "quantlib_lanes": [],
+      "assumptions": [
+        "lower barrier",
+        "discrete monitoring at simulation steps",
+        "flat risk-free rate",
+        "constant volatility"
+      ],
+      "unsupported_states": [
+        "continuous barrier correction",
+        "rebates",
+        "upper or double barriers",
+        "term-structure inputs",
+        "pathwise or likelihood-ratio Greeks"
+      ]
+    },
+    {
+      "workload_id": "fixed_strike_lookback_call_gbm",
+      "display_name": "Fixed-strike lookback call under GBM",
+      "product_family": "lookback_option",
+      "model_family": "geometric_brownian_motion",
+      "payoff": "discounted max(max_t(S_t) - K, 0)",
+      "runtime_surfaces": [
+        "lookback_call_price_mc_cpu",
+        "lookback_call_greeks_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "not_yet_native",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom",
+        "latin_hypercube"
+      ],
+      "variance_reduction_support": [
+        "standard",
+        "control_variate"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "supported",
+          "greeks": [
+            "delta",
+            "vega",
+            "rho",
+            "theta"
+          ],
+          "reference_fixture_ids": []
+        },
+        "pathwise": {
+          "status": "unsupported",
+          "reason": "max-path payoff needs a separate estimator design"
+        },
+        "likelihood_ratio": {
+          "status": "unsupported",
+          "reason": "max-path payoff needs a separate estimator design"
+        }
+      },
+      "reference_status": "quantlib_competitor_lane_only",
+      "reference_fixture_ids": [],
+      "reference_caveat": "QuantLib MCLookbackEngine lane is tracked, but no trusted analytic discrete-monitoring fixture is committed.",
+      "quantlib_lanes": [
+        "mc_cpu_lookback_call_quantlib"
+      ],
+      "assumptions": [
+        "fixed strike",
+        "running maximum starts at spot",
+        "discrete monitoring at simulation steps",
+        "flat risk-free rate",
+        "constant volatility"
+      ],
+      "unsupported_states": [
+        "floating-strike lookback payoff",
+        "continuous-monitoring analytic fixture",
+        "running minimum put payoff",
+        "pathwise or likelihood-ratio Greeks"
+      ]
+    },
+    {
+      "workload_id": "two_asset_basket_call_gbm",
+      "display_name": "Two-asset terminal basket call under correlated GBM",
+      "product_family": "basket_option",
+      "model_family": "correlated_geometric_brownian_motion",
+      "payoff": "discounted max(w_1 S_1,T + w_2 S_2,T - K, 0)",
+      "runtime_surfaces": [
+        "basket_call_price_mc_cpu",
+        "basket_call_greeks_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "not_yet_native",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom",
+        "randomized_halton",
+        "latin_hypercube",
+        "scrambled_sobol"
+      ],
+      "variance_reduction_support": [
+        "standard"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "supported",
+          "greeks": [
+            "delta",
+            "vega",
+            "rho"
+          ],
+          "reference_fixture_ids": []
+        },
+        "pathwise": {
+          "status": "unsupported",
+          "reason": "multi-asset basket pathwise estimator is not implemented yet"
+        },
+        "likelihood_ratio": {
+          "status": "unsupported",
+          "reason": "multi-asset basket likelihood-ratio estimator is not implemented yet"
+        }
+      },
+      "reference_status": "no_trusted_fixture_yet",
+      "reference_fixture_ids": [],
+      "reference_caveat": "No closed-form basket reference is committed; current checks use stochastic pricing-quality comparisons.",
+      "quantlib_lanes": [],
+      "assumptions": [
+        "two assets",
+        "terminal basket only",
+        "constant volatilities",
+        "constant correlation",
+        "flat risk-free rate"
+      ],
+      "unsupported_states": [
+        "more than two assets",
+        "path-dependent basket payoff",
+        "stochastic correlation",
+        "pathwise or likelihood-ratio Greeks"
+      ]
+    },
+    {
+      "workload_id": "heston_european_call",
+      "display_name": "European call under Heston stochastic volatility",
+      "product_family": "vanilla_option",
+      "model_family": "heston_full_truncation_euler",
+      "payoff": "discounted max(S_T - K, 0)",
+      "runtime_surfaces": [
+        "heston_european_call_price_mc_cpu",
+        "compare_heston_black_scholes_limit_cpu",
+        "heston_european_call_greeks_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "not_yet_native",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom"
+      ],
+      "variance_reduction_support": [
+        "standard"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "supported",
+          "greeks": [
+            "delta"
+          ],
+          "reference_fixture_ids": [
+            "heston_black_scholes_limit_atm_1y"
+          ]
+        },
+        "pathwise": {
+          "status": "unsupported",
+          "reason": "stochastic-volatility pathwise estimator is not implemented yet"
+        },
+        "likelihood_ratio": {
+          "status": "unsupported",
+          "reason": "stochastic-volatility likelihood-ratio estimator is not implemented yet"
+        }
+      },
+      "reference_status": "trusted_limit_fixture_and_quantlib_analytic_lane",
+      "reference_fixture_ids": [
+        "heston_black_scholes_limit_atm_1y"
+      ],
+      "reference_caveat": "The committed trusted fixture is the Black-Scholes limit; the general Heston analytic comparison is tracked through the QuantLib lane when QuantLib-Python is installed.",
+      "quantlib_lanes": [
+        "mc_cpu_heston_european_call_quantlib"
+      ],
+      "assumptions": [
+        "full-truncation Euler variance stepping",
+        "flat risk-free rate",
+        "zero dividend yield in tracked benchmark configuration",
+        "European exercise"
+      ],
+      "unsupported_states": [
+        "analytic Heston pricing inside Rust",
+        "non-European payoff families",
+        "structured sampling",
+        "pathwise or likelihood-ratio Greeks"
+      ]
+    },
+    {
+      "workload_id": "gaussian_uncertainty_mean",
+      "display_name": "Gaussian uncertainty propagation analytic-mean workload",
+      "product_family": "scientific_uq",
+      "model_family": "independent_standard_normal_inputs",
+      "payoff": "z_0^2 + 0.5 z_1 + exp(0.1 z_2)",
+      "runtime_surfaces": [
+        "gaussian_uncertainty_mean_cpu"
+      ],
+      "backend_support": {
+        "cpu_native": "supported",
+        "apple_metal": "not_yet_native",
+        "nvidia_cuda": "staged_not_native_execution"
+      },
+      "sampling_support": [
+        "pseudorandom",
+        "latin_hypercube",
+        "scrambled_sobol"
+      ],
+      "variance_reduction_support": [
+        "structured_sampling"
+      ],
+      "greek_estimators": {
+        "bump_and_revalue": {
+          "status": "not_applicable",
+          "reason": "non-pricing UQ workload has no financial Greeks"
+        },
+        "pathwise": {
+          "status": "not_applicable",
+          "reason": "non-pricing UQ workload has no financial Greeks"
+        },
+        "likelihood_ratio": {
+          "status": "not_applicable",
+          "reason": "non-pricing UQ workload has no financial Greeks"
+        }
+      },
+      "reference_status": "trusted_analytic",
+      "reference_fixture_ids": [
+        "gaussian_uncertainty_mean_reference"
+      ],
+      "quantlib_lanes": [],
+      "assumptions": [
+        "independent standard-normal inputs",
+        "at least three dimensions",
+        "response uses only first three axes"
+      ],
+      "unsupported_states": [
+        "correlated UQ inputs",
+        "arbitrary response functions",
+        "non-Gaussian analytic fixtures"
+      ]
+    }
+  ]
+}

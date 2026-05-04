@@ -61,7 +61,7 @@ Next action:
 
 ## Phase 2: Beat QuantLib On Selected Monte Carlo Workloads
 
-Status: `in-progress`
+Status: `done`
 
 Primary competitor: QuantLib.
 
@@ -74,10 +74,10 @@ Deliverables:
 - `done` Add lookback option CPU runtime and benchmark.
 - `done` Add Heston path simulation with reference validation.
 - `done` Add Greeks: bump-and-revalue first, then pathwise and likelihood-ratio estimators.
-- `todo` Add product/model capability catalog with assumptions and unsupported states.
-- `todo` Add Greek estimator capability matrix by product/model, including bump, pathwise, likelihood-ratio, and unsupported states.
-- `todo` Add accuracy fixtures against analytic or semi-analytic references where available.
-- `todo` Add QuantLib-enabled benchmark environment so QuantLib lanes are populated in CI/release artifacts instead of only reporting unavailable locally.
+- `done` Add product/model capability catalog with assumptions and unsupported states.
+- `done` Add Greek estimator capability matrix by product/model, including bump, pathwise, likelihood-ratio, and unsupported states.
+- `done` Add accuracy fixtures against analytic or semi-analytic references where available.
+- `done` Add QuantLib-enabled benchmark environment so QuantLib lanes are populated in CI/release artifacts instead of only reporting unavailable locally.
 
 Definition of done:
 
@@ -85,9 +85,13 @@ Definition of done:
 - Docs remain honest that QuantLib is broader on calendars, curves, market conventions, and instruments.
 - Every selected product/model/Greek has a documented reference source or an explicit "no trusted fixture yet" caveat.
 
-Next action:
+Evidence:
 
-- Add a product/model capability catalog with assumptions, supported Greeks, estimator availability, reference fixtures, and explicit unsupported states.
+- Capability catalog: `docs/product-model-capability-catalog.md`
+- Machine-readable catalog: `docs/product-model-capability-catalog.json`
+- Reference fixture registry: `benchmarks/reference-fixtures.json`
+- QuantLib competitor environment: `benchmarks/competitors/requirements-quantlib.txt`
+- QuantLib CI artifact path: `benchmarks/quantlib-ci-results.json`
 
 ## Phase 3: Become The Most User-Friendly MC Library
 
@@ -189,12 +193,11 @@ Definition of done:
 
 These are the remaining durable phases before a serious v1:
 
-1. Phase 2: selected QuantLib competitiveness, capability catalog, and reference fixtures.
-2. Phase 3: Python-first UX, packaging, docs, and release discipline.
-3. Phase 4: AI-agent-native manifests, schemas, and tool wrappers.
-4. Phase 5: accelerator credibility, competitor CI, and native CUDA.
-5. Phase 6: measured planner intelligence and method comparison surfaces.
-6. Phase 7: broader product/model/UQ coverage.
+1. Phase 3: Python-first UX, packaging, docs, and release discipline.
+2. Phase 4: AI-agent-native manifests, schemas, and tool wrappers.
+3. Phase 5: accelerator credibility, competitor CI, and native CUDA.
+4. Phase 6: measured planner intelligence and method comparison surfaces.
+5. Phase 7: broader product/model/UQ coverage.
 
 ## Always-Next Rule
 

@@ -1,0 +1,130 @@
+{
+  "schema_version": "phase2.v1",
+  "purpose": "Trusted reference fixture registry for selected Phase 2 pricing, Greek, and UQ claims.",
+  "fixtures": [
+    {
+      "fixture_id": "black_scholes_european_call_atm_1y",
+      "workload_id": "european_call_gbm",
+      "reference_source": "closed_form_black_scholes_merton",
+      "runtime_reference_surface": "black_scholes_european_call_price",
+      "comparison_metric": "absolute_price_error",
+      "parameters": {
+        "spot": 100.0,
+        "strike": 100.0,
+        "rate": 0.03,
+        "volatility": 0.2,
+        "maturity_years": 1.0,
+        "dividend_yield": 0.0
+      },
+      "expected": {
+        "price": 9.413403383853016
+      },
+      "tolerance_guidance": {
+        "unit": "stderr_units",
+        "recommended_max": 3.0
+      },
+      "notes": [
+        "Applies only to the vanilla European-call GBM workload with flat rate and zero dividend yield."
+      ]
+    },
+    {
+      "fixture_id": "black_scholes_european_call_greeks_atm_1y",
+      "workload_id": "european_call_gbm",
+      "reference_source": "closed_form_black_scholes_merton",
+      "runtime_reference_surface": "black_scholes_european_call_greeks",
+      "comparison_metric": "absolute_greek_error",
+      "parameters": {
+        "spot": 100.0,
+        "strike": 100.0,
+        "rate": 0.03,
+        "volatility": 0.2,
+        "maturity_years": 1.0,
+        "dividend_yield": 0.0
+      },
+      "expected": {
+        "price": 9.413403383853016,
+        "delta": 0.5987063256829237,
+        "vega": 38.66681168028493,
+        "rho": 50.457229184439356,
+        "theta_calendar_convention": -5.380398043561674
+      },
+      "tolerance_guidance": {
+        "delta_abs_error_release_gate": 0.01
+      },
+      "notes": [
+        "Theta uses the conventional calendar-time sign returned by the Rust reference helper."
+      ]
+    },
+    {
+      "fixture_id": "heston_black_scholes_limit_atm_1y",
+      "workload_id": "heston_european_call",
+      "reference_source": "black_scholes_limit_of_heston_when_vol_of_vol_is_zero_and_variance_is_constant",
+      "runtime_reference_surface": "compare_heston_black_scholes_limit_cpu",
+      "comparison_metric": "absolute_price_error_and_delta_error",
+      "parameters": {
+        "spot": 100.0,
+        "strike": 100.0,
+        "rate": 0.03,
+        "initial_variance": 0.04,
+        "long_run_variance": 0.04,
+        "vol_of_vol": 0.0,
+        "maturity_years": 1.0,
+        "equivalent_black_scholes_volatility": 0.2
+      },
+      "expected": {
+        "black_scholes_limit_price": 9.413403383853016,
+        "black_scholes_limit_delta": 0.5987063256829237
+      },
+      "tolerance_guidance": {
+        "price_abs_error_release_gate": 0.25,
+        "delta_abs_error_release_gate": 0.01
+      },
+      "notes": [
+        "This is a trusted limit fixture, not a full analytic Heston-price fixture for arbitrary stochastic-volatility parameters."
+      ]
+    },
+    {
+      "fixture_id": "gaussian_uncertainty_mean_reference",
+      "workload_id": "gaussian_uncertainty_mean",
+      "reference_source": "analytic_expectation_under_independent_standard_normals",
+      "runtime_reference_surface": "gaussian_uncertainty_mean_cpu",
+      "comparison_metric": "absolute_mean_error",
+      "parameters": {
+        "response": "z_0^2 + 0.5 z_1 + exp(0.1 z_2)",
+        "minimum_dimensions": 3
+      },
+      "expected": {
+        "analytic_mean": 2.0050125208594007
+      },
+      "tolerance_guidance": {
+        "unit": "stderr_units",
+        "recommended_max": 3.0
+      },
+      "notes": [
+        "Expectation is E[z_0^2] + 0.5 E[z_1] + E[exp(0.1 z_2)] = 1 + exp(0.005)."
+      ]
+    }
+  ],
+  "explicit_caveats": [
+    {
+      "workload_id": "arithmetic_asian_call_gbm",
+      "status": "no_trusted_fixture_yet",
+      "reason": "No committed analytic, semi-analytic, or high-precision reference for the current discrete arithmetic-average semantics."
+    },
+    {
+      "workload_id": "down_and_out_call_gbm",
+      "status": "no_trusted_fixture_yet",
+      "reason": "No committed reference for current discrete barrier monitoring semantics."
+    },
+    {
+      "workload_id": "fixed_strike_lookback_call_gbm",
+      "status": "quantlib_competitor_lane_only",
+      "reason": "QuantLib MCLookbackEngine lane is tracked, but no analytic discrete-monitoring fixture is committed."
+    },
+    {
+      "workload_id": "two_asset_basket_call_gbm",
+      "status": "no_trusted_fixture_yet",
+      "reason": "No committed analytic or high-precision two-asset basket reference yet."
+    }
+  ]
+}
