@@ -2,8 +2,9 @@ use mc_core::{
     american_put_price_lsm_cpu, arithmetic_asian_call_price_mc_cpu,
     arithmetic_asian_call_price_mlmc_cpu, basket_call_price_mc_cpu, bermudan_put_price_lsm_cpu,
     black_scholes_european_call_greeks, black_scholes_european_call_price,
-    black_scholes_european_put_price, compare_arithmetic_asian_sampling_quality_cpu,
-    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    black_scholes_european_put_price, compare_american_put_lsm_binomial_reference_cpu,
+    compare_arithmetic_asian_sampling_quality_cpu, compare_basket_call_sampling_quality_cpu,
+    compare_bermudan_put_lsm_binomial_reference_cpu, compare_down_and_out_sampling_quality_cpu,
     compare_european_call_realized_error_cpu, compare_european_call_sampling_quality_cpu,
     compare_heston_black_scholes_limit_cpu, diagnose_standard_normals_cpu,
     down_and_out_call_price_mc_cpu, european_call_greeks_cpu, european_call_price_mc_cpu,
@@ -1206,6 +1207,28 @@ fn american_put_lsm_has_early_exercise_premium_over_european_put() {
 }
 
 #[test]
+fn american_put_lsm_matches_binomial_reference_within_mc_error() {
+    let cfg = AmericanPutConfig {
+        n_paths: 120_000,
+        n_steps: 64,
+        seed: 14_007,
+        ..AmericanPutConfig::default()
+    };
+
+    let comparison = compare_american_put_lsm_binomial_reference_cpu(&cfg, 512);
+
+    assert_eq!(comparison.workload, PricingWorkloadFamily::AmericanPut);
+    assert_eq!(comparison.reference_name, "crr_binomial_american_put");
+    assert_eq!(comparison.reference_steps, 512);
+    assert!(
+        comparison.reference_price
+            >= black_scholes_european_put_price(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t)
+    );
+    assert!(comparison.abs_error <= comparison.stderr * 5.0 + 0.15);
+    assert!(comparison.error_stderr_units.abs() <= 5.0 || comparison.abs_error <= 0.15);
+}
+
+#[test]
 fn american_put_pricer_builder_supports_expressive_configuration() {
     let result = AmericanPutPricer::new()
         .s0(100.0)
@@ -1274,6 +1297,30 @@ fn bermudan_put_lsm_sits_between_european_lower_bound_and_american_schedule() {
     assert!(bermudan.price + 3.0 * bermudan.stderr >= european);
     assert!(bermudan.price <= base.k);
     assert!(american.price + 3.0 * american.stderr >= bermudan.price - 3.0 * bermudan.stderr);
+}
+
+#[test]
+fn bermudan_put_lsm_matches_binomial_reference_within_mc_error() {
+    let cfg = BermudanPutConfig {
+        n_paths: 120_000,
+        n_steps: 64,
+        exercise_steps: vec![16, 32, 48, 64],
+        seed: 14_008,
+        ..BermudanPutConfig::default()
+    };
+
+    let comparison = compare_bermudan_put_lsm_binomial_reference_cpu(&cfg, 512);
+
+    assert_eq!(comparison.workload, PricingWorkloadFamily::BermudanPut);
+    assert_eq!(comparison.reference_name, "crr_binomial_bermudan_put");
+    assert_eq!(comparison.reference_steps, 512);
+    assert_eq!(comparison.exercise_schedule, vec![16, 32, 48, 64]);
+    assert!(
+        comparison.reference_price
+            >= black_scholes_european_put_price(cfg.s0, cfg.k, cfg.r, cfg.sigma, cfg.t)
+    );
+    assert!(comparison.abs_error <= comparison.stderr * 5.0 + 0.15);
+    assert!(comparison.error_stderr_units.abs() <= 5.0 || comparison.abs_error <= 0.15);
 }
 
 #[test]

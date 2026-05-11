@@ -346,7 +346,9 @@
       "model_family": "geometric_brownian_motion",
       "payoff": "max(K - S_t, 0) with discrete early-exercise decisions estimated by Longstaff-Schwartz regression",
       "runtime_surfaces": [
-        "american_put_price_lsm_cpu"
+        "american_put_price_lsm_cpu",
+        "american_put_binomial_reference_price",
+        "compare_american_put_lsm_binomial_reference_cpu"
       ],
       "backend_support": {
         "cpu_native": "supported_cpu_reference",
@@ -373,11 +375,12 @@
           "reason": "early-exercise boundary needs separate estimator design"
         }
       },
-      "reference_status": "lower_bound_reference_only",
+      "reference_status": "trusted_tree_reference_and_lower_bound",
       "reference_fixture_ids": [
-        "black_scholes_european_put_atm_1y_lower_bound"
+        "black_scholes_european_put_atm_1y_lower_bound",
+        "crr_american_put_atm_1y_reference"
       ],
-      "reference_caveat": "European put price is a lower-bound sanity check, not a full American option reference.",
+      "reference_caveat": "CRR binomial-tree reference covers the default American put fixture; external market-library comparison lanes are still pending.",
       "quantlib_lanes": [],
       "assumptions": [
         "flat risk-free rate",
@@ -392,7 +395,7 @@
         "calls with early exercise",
         "native GPU execution",
         "Greeks",
-        "high-precision American reference fixture"
+        "external market-library American reference lane"
       ]
     },
     {
@@ -402,7 +405,9 @@
       "model_family": "geometric_brownian_motion",
       "payoff": "max(K - S_t, 0) with custom discrete exercise dates estimated by Longstaff-Schwartz regression",
       "runtime_surfaces": [
-        "bermudan_put_price_lsm_cpu"
+        "bermudan_put_price_lsm_cpu",
+        "bermudan_put_binomial_reference_price",
+        "compare_bermudan_put_lsm_binomial_reference_cpu"
       ],
       "backend_support": {
         "cpu_native": "supported_cpu_reference",
@@ -429,11 +434,12 @@
           "reason": "custom exercise boundary needs separate estimator design"
         }
       },
-      "reference_status": "lower_bound_reference_only",
+      "reference_status": "trusted_tree_reference_and_lower_bound",
       "reference_fixture_ids": [
-        "black_scholes_bermudan_put_atm_1y_lower_bound"
+        "black_scholes_bermudan_put_atm_1y_lower_bound",
+        "crr_bermudan_put_atm_1y_quarterly_reference"
       ],
-      "reference_caveat": "European put price is a lower-bound sanity check, not a full Bermudan option reference.",
+      "reference_caveat": "CRR binomial-tree reference covers the default quarterly Bermudan put fixture after mapping simulation exercise steps to the denser reference grid; external market-library comparison lanes are still pending.",
       "quantlib_lanes": [],
       "assumptions": [
         "flat risk-free rate",
@@ -449,7 +455,7 @@
         "calls with early exercise",
         "native GPU execution",
         "Greeks",
-        "high-precision Bermudan reference fixture"
+        "external market-library Bermudan reference lane"
       ]
     },
     {

@@ -212,6 +212,24 @@ pub struct HestonReferenceComparison {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EarlyExerciseReferenceComparison {
+    pub workload: PricingWorkloadFamily,
+    pub reference_name: String,
+    pub paths: usize,
+    pub steps: usize,
+    pub seed: u64,
+    pub reference_steps: usize,
+    pub exercise_schedule: Vec<usize>,
+    pub reference_price: f64,
+    pub simulated_price: f64,
+    pub stderr: f64,
+    pub error: f64,
+    pub abs_error: f64,
+    pub error_stderr_units: f64,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct GaussianUncertaintyConfig {
     pub n_samples: usize,
@@ -494,6 +512,92 @@ pub fn compare_heston_black_scholes_limit_cpu(
         error_stderr_units,
         warnings,
     }
+}
+
+pub fn american_put_binomial_reference_price(
+    cfg: &AmericanPutConfig,
+    reference_steps: usize,
+) -> f64 {
+    validate_american_put_config(cfg);
+    assert!(reference_steps > 0, "reference_steps must be > 0");
+    let schedule = (0..=reference_steps).collect::<Vec<_>>();
+    binomial_put_reference_price(
+        cfg.s0,
+        cfg.k,
+        cfg.r,
+        cfg.sigma,
+        cfg.t,
+        reference_steps,
+        &schedule,
+    )
+}
+
+pub fn bermudan_put_binomial_reference_price(
+    cfg: &BermudanPutConfig,
+    reference_steps: usize,
+) -> f64 {
+    validate_bermudan_put_config(cfg);
+    assert!(reference_steps > 0, "reference_steps must be > 0");
+    let (schedule, _) = normalize_bermudan_exercise_schedule(&cfg.exercise_steps, cfg.n_steps);
+    let reference_schedule =
+        map_exercise_schedule_to_reference_steps(&schedule, cfg.n_steps, reference_steps);
+    binomial_put_reference_price(
+        cfg.s0,
+        cfg.k,
+        cfg.r,
+        cfg.sigma,
+        cfg.t,
+        reference_steps,
+        &reference_schedule,
+    )
+}
+
+pub fn compare_american_put_lsm_binomial_reference_cpu(
+    cfg: &AmericanPutConfig,
+    reference_steps: usize,
+) -> EarlyExerciseReferenceComparison {
+    let result = american_put_price_lsm_cpu(cfg);
+    let reference_price = american_put_binomial_reference_price(cfg, reference_steps);
+    build_early_exercise_reference_comparison(
+        PricingWorkloadFamily::AmericanPut,
+        "crr_binomial_american_put",
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        reference_steps,
+        (1..=cfg.n_steps).collect(),
+        reference_price,
+        result.price,
+        result.stderr,
+        vec![
+            "Binomial reference uses a Cox-Ross-Rubinstein tree with exercise at every reference step.".to_string(),
+            "LSM and binomial references use different discretization grids, so compare with Monte Carlo error and discretization tolerance.".to_string(),
+        ],
+    )
+}
+
+pub fn compare_bermudan_put_lsm_binomial_reference_cpu(
+    cfg: &BermudanPutConfig,
+    reference_steps: usize,
+) -> EarlyExerciseReferenceComparison {
+    let result = bermudan_put_price_lsm_cpu(cfg);
+    let reference_price = bermudan_put_binomial_reference_price(cfg, reference_steps);
+    build_early_exercise_reference_comparison(
+        PricingWorkloadFamily::BermudanPut,
+        "crr_binomial_bermudan_put",
+        cfg.n_paths,
+        cfg.n_steps,
+        cfg.seed,
+        reference_steps,
+        result.exercise_schedule,
+        reference_price,
+        result.price,
+        result.stderr,
+        vec![
+            "Binomial reference maps simulation-grid exercise steps onto the requested reference tree.".to_string(),
+            "LSM and binomial references use different discretization grids, so compare with Monte Carlo error and discretization tolerance.".to_string(),
+        ],
+    )
 }
 
 pub fn compare_arithmetic_asian_sampling_quality_cpu(
@@ -4505,6 +4609,148 @@ fn normalize_bermudan_exercise_schedule(
     }
 
     (schedule, warning)
+}
+
+fn map_exercise_schedule_to_reference_steps(
+    exercise_steps: &[usize],
+    simulation_steps: usize,
+    reference_steps: usize,
+) -> Vec<usize> {
+    let mut schedule = exercise_steps
+        .iter()
+        .map(|&step| {
+            ((step as f64 / simulation_steps as f64) * reference_steps as f64).round() as usize
+        })
+        .map(|step| step.clamp(1, reference_steps))
+        .collect::<Vec<_>>();
+    schedule.push(reference_steps);
+    schedule.sort_unstable();
+    schedule.dedup();
+    schedule
+}
+
+fn build_early_exercise_reference_comparison(
+    workload: PricingWorkloadFamily,
+    reference_name: &str,
+    paths: usize,
+    steps: usize,
+    seed: u64,
+    reference_steps: usize,
+    exercise_schedule: Vec<usize>,
+    reference_price: f64,
+    simulated_price: f64,
+    stderr: f64,
+    warnings: Vec<String>,
+) -> EarlyExerciseReferenceComparison {
+    let error = simulated_price - reference_price;
+    let abs_error = error.abs();
+    let error_stderr_units = if stderr > 0.0 {
+        error / stderr
+    } else if error == 0.0 {
+        0.0
+    } else {
+        f64::INFINITY.copysign(error)
+    };
+
+    EarlyExerciseReferenceComparison {
+        workload,
+        reference_name: reference_name.to_string(),
+        paths,
+        steps,
+        seed,
+        reference_steps,
+        exercise_schedule,
+        reference_price,
+        simulated_price,
+        stderr,
+        error,
+        abs_error,
+        error_stderr_units,
+        warnings,
+    }
+}
+
+fn binomial_put_reference_price(
+    s0: f64,
+    k: f64,
+    r: f64,
+    sigma: f64,
+    t: f64,
+    reference_steps: usize,
+    exercise_steps: &[usize],
+) -> f64 {
+    if sigma == 0.0 {
+        return deterministic_put_exercise_reference_price(
+            s0,
+            k,
+            r,
+            t,
+            reference_steps,
+            exercise_steps,
+        );
+    }
+
+    let dt = t / reference_steps as f64;
+    let u = (sigma * dt.sqrt()).exp();
+    let d = 1.0 / u;
+    let growth = (r * dt).exp();
+    let p = (growth - d) / (u - d);
+    assert!(
+        p.is_finite() && (0.0..=1.0).contains(&p),
+        "CRR risk-neutral probability must be finite and within [0, 1]"
+    );
+    let discount = (-r * dt).exp();
+    let mut values = vec![0.0; reference_steps + 1];
+    let mut exercise_mask = vec![false; reference_steps + 1];
+
+    for &step in exercise_steps {
+        if step <= reference_steps {
+            exercise_mask[step] = true;
+        }
+    }
+    exercise_mask[reference_steps] = true;
+
+    for (down_moves, value) in values.iter_mut().enumerate().take(reference_steps + 1) {
+        let up_moves = reference_steps - down_moves;
+        let s_t = s0 * u.powi(up_moves as i32) * d.powi(down_moves as i32);
+        *value = (k - s_t).max(0.0);
+    }
+
+    for step in (0..reference_steps).rev() {
+        for down_moves in 0..=step {
+            let continuation =
+                discount * (p * values[down_moves] + (1.0 - p) * values[down_moves + 1]);
+            if exercise_mask[step] {
+                let up_moves = step - down_moves;
+                let s_t = s0 * u.powi(up_moves as i32) * d.powi(down_moves as i32);
+                values[down_moves] = continuation.max(k - s_t);
+            } else {
+                values[down_moves] = continuation;
+            }
+        }
+    }
+
+    values[0]
+}
+
+fn deterministic_put_exercise_reference_price(
+    s0: f64,
+    k: f64,
+    r: f64,
+    t: f64,
+    reference_steps: usize,
+    exercise_steps: &[usize],
+) -> f64 {
+    exercise_steps
+        .iter()
+        .copied()
+        .filter(|&step| step <= reference_steps)
+        .map(|step| {
+            let time = t * step as f64 / reference_steps as f64;
+            let s_t = s0 * (r * time).exp();
+            (-r * time).exp() * (k - s_t).max(0.0)
+        })
+        .fold(0.0, f64::max)
 }
 
 #[allow(dead_code)]

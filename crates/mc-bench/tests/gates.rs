@@ -109,6 +109,22 @@ fn benchmark_gates_hold_for_current_internal_suite() {
         american_put.methodology.as_deref(),
         Some("american_put_longstaff_schwartz_laguerre")
     );
+    let american_put_quality = find_metric(
+        "mc_cpu_american_put_lsm_binomial_reference_quality",
+        &report,
+    );
+    assert_eq!(
+        american_put_quality.metric_name.as_deref(),
+        Some("abs_error_vs_binomial_reference")
+    );
+    let american_put_abs_error = american_put_quality
+        .metric_value
+        .expect("American put binomial-reference quality benchmark must contain metric_value");
+    assert!(
+        american_put_abs_error.is_finite() && american_put_abs_error < 0.75,
+        "American put binomial-reference gate failed: abs_error_vs_binomial_reference={} expected<0.75",
+        american_put_abs_error
+    );
 
     let bermudan_put = find_metric("mc_cpu_bermudan_put_lsm_rust", &report);
     assert!(
@@ -118,6 +134,22 @@ fn benchmark_gates_hold_for_current_internal_suite() {
     assert_eq!(
         bermudan_put.methodology.as_deref(),
         Some("bermudan_put_longstaff_schwartz_laguerre_custom_schedule")
+    );
+    let bermudan_put_quality = find_metric(
+        "mc_cpu_bermudan_put_lsm_binomial_reference_quality",
+        &report,
+    );
+    assert_eq!(
+        bermudan_put_quality.metric_name.as_deref(),
+        Some("abs_error_vs_binomial_reference")
+    );
+    let bermudan_put_abs_error = bermudan_put_quality
+        .metric_value
+        .expect("Bermudan put binomial-reference quality benchmark must contain metric_value");
+    assert!(
+        bermudan_put_abs_error.is_finite() && bermudan_put_abs_error < 0.75,
+        "Bermudan put binomial-reference gate failed: abs_error_vs_binomial_reference={} expected<0.75",
+        bermudan_put_abs_error
     );
 
     let heston = find_metric("mc_cpu_heston_european_call_rust", &report);

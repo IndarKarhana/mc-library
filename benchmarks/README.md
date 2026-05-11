@@ -35,7 +35,9 @@ From `latest-results.json`:
 - `mc_cpu_lookback_call_quantlib` or `mc_cpu_lookback_call_quantlib_unavailable`: tracks the selected QuantLib-Python lookback competitor lane
 - `mc_cpu_qmc_quality_lookback_latin_hypercube`: reports lookback `stderr_ratio_vs_pseudorandom`
 - `mc_cpu_american_put_lsm_rust`: tracks CPU Longstaff-Schwartz American-put pricing
+- `mc_cpu_american_put_lsm_binomial_reference_quality`: reports American-put LSM absolute error against a CRR binomial-tree reference
 - `mc_cpu_bermudan_put_lsm_rust`: tracks CPU Longstaff-Schwartz Bermudan-put pricing with custom exercise steps
+- `mc_cpu_bermudan_put_lsm_binomial_reference_quality`: reports Bermudan-put LSM absolute error against a mapped CRR binomial-tree reference
 - `mc_cpu_heston_european_call_rust`: tracks the Heston stochastic-volatility European-call CPU workload with full-truncation Euler stepping
 - `mc_cpu_heston_black_scholes_limit_quality`: reports Heston zero-vol-of-vol constant-variance absolute error against the Black-Scholes reference
 - `mc_cpu_heston_european_call_quantlib` or `mc_cpu_heston_european_call_quantlib_unavailable`: tracks the selected QuantLib-Python analytic Heston reference lane
@@ -61,26 +63,28 @@ From `latest-results.json`:
 From `release-results.json`:
 
 - `planner_choice_accuracy_measured`: `100.0%` on the measured local backend-winner suite
-- `mc_cpu_european_call_rust` (`stepwise_paths`): `12.612 ms` per run, price `9.430456`
+- `mc_cpu_european_call_rust` (`stepwise_paths`): `12.416 ms` per run, price `9.430456`
 - `mc_cpu_european_call_rust_control_variate` (`stepwise_paths_control_variate`): see `release-results.json`, `stderr_ratio_vs_standard = 0.411`
-- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.618 ms` per run
-- `mc_cpu_arithmetic_asian_call_rust` (`arithmetic_asian_stepwise`): `16.503 ms` per run
-- `mc_cpu_arithmetic_asian_call_rust_mlmc`: `4.499 ms` per run, `stderr_ratio_vs_standard = 2.013`
-- `mc_cpu_arithmetic_asian_call_rust_mlqmc`: `6.072 ms` per run, `stderr_ratio_vs_standard = 0.418`
-- `mc_cpu_down_and_out_call_rust` (`down_and_out_stepwise`): `17.267 ms` per run
-- `mc_cpu_lookback_call_rust` (`lookback_fixed_strike_stepwise`): `16.832 ms` per run, price `16.671609`
-- `mc_cpu_lookback_call_rust_control_variate` (`lookback_fixed_strike_stepwise_control_variate`): `16.908 ms` per run, price `16.649141`
+- `mc_cpu_european_call_rust_terminal` (`terminal_distribution`): `0.610 ms` per run
+- `mc_cpu_arithmetic_asian_call_rust` (`arithmetic_asian_stepwise`): `19.932 ms` per run
+- `mc_cpu_arithmetic_asian_call_rust_mlmc`: `4.544 ms` per run, `stderr_ratio_vs_standard = 2.013`
+- `mc_cpu_arithmetic_asian_call_rust_mlqmc`: `6.064 ms` per run, `stderr_ratio_vs_standard = 0.418`
+- `mc_cpu_down_and_out_call_rust` (`down_and_out_stepwise`): `16.912 ms` per run
+- `mc_cpu_lookback_call_rust` (`lookback_fixed_strike_stepwise`): `16.531 ms` per run, price `16.671609`
+- `mc_cpu_lookback_call_rust_control_variate` (`lookback_fixed_strike_stepwise_control_variate`): `17.008 ms` per run, price `16.649141`
 - `mc_cpu_qmc_quality_lookback_latin_hypercube`: `stderr_ratio_vs_pseudorandom = 1.000`
-- `mc_cpu_american_put_lsm_rust` (`american_put_longstaff_schwartz_laguerre`): `270.324 ms` per run, price `6.741288`
-- `mc_cpu_bermudan_put_lsm_rust` (`bermudan_put_longstaff_schwartz_laguerre_custom_schedule`): `148.461 ms` per run, price `6.672583`
-- `mc_cpu_heston_european_call_rust` (`heston_full_truncation_euler_stepwise`): `26.419 ms` per run, price `9.173258`
+- `mc_cpu_american_put_lsm_rust` (`american_put_longstaff_schwartz_laguerre`): `263.685 ms` per run, price `6.741288`
+- `mc_cpu_american_put_lsm_binomial_reference_quality`: `259.249 ms` per run, `abs_error_vs_binomial_reference = 0.000323`
+- `mc_cpu_bermudan_put_lsm_rust` (`bermudan_put_longstaff_schwartz_laguerre_custom_schedule`): `138.789 ms` per run, price `6.672583`
+- `mc_cpu_bermudan_put_lsm_binomial_reference_quality`: `139.226 ms` per run, `abs_error_vs_binomial_reference = 0.019098`
+- `mc_cpu_heston_european_call_rust` (`heston_full_truncation_euler_stepwise`): `25.977 ms` per run, price `9.173258`
 - `mc_cpu_heston_black_scholes_limit_quality`: `abs_error_vs_black_scholes = 0.039572`
-- `mc_cpu_european_call_greeks_bump_rust`: `3.051 ms` per run, `abs_delta_error_vs_black_scholes = 0.000126`
-- `mc_cpu_european_call_greeks_pathwise_rust`: `1.513 ms` per run, `abs_delta_error_vs_black_scholes = 0.000281`
-- `mc_cpu_european_call_greeks_likelihood_ratio_rust`: `1.450 ms` per run, `abs_delta_error_vs_black_scholes = 0.002631`
-- `mc_cpu_heston_greeks_black_scholes_limit_delta_quality`: `130.813 ms` per run, `abs_delta_error_vs_black_scholes = 0.000227`
-- `mc_cpu_all_workload_greeks_bump_rust`: `207.477 ms` per run, `greek_estimate_count = 26`
-- `mc_cpu_basket_call_rust` (`basket_terminal_pseudorandom`): `4.047 ms` per run
+- `mc_cpu_european_call_greeks_bump_rust`: `3.095 ms` per run, `abs_delta_error_vs_black_scholes = 0.000126`
+- `mc_cpu_european_call_greeks_pathwise_rust`: `1.496 ms` per run, `abs_delta_error_vs_black_scholes = 0.000281`
+- `mc_cpu_european_call_greeks_likelihood_ratio_rust`: `1.382 ms` per run, `abs_delta_error_vs_black_scholes = 0.002631`
+- `mc_cpu_heston_greeks_black_scholes_limit_delta_quality`: `119.104 ms` per run, `abs_delta_error_vs_black_scholes = 0.000227`
+- `mc_cpu_all_workload_greeks_bump_rust`: `193.818 ms` per run, `greek_estimate_count = 26`
+- `mc_cpu_basket_call_rust` (`basket_terminal_pseudorandom`): `3.970 ms` per run
 - `mc_cpu_basket_call_rust_latin_hypercube` (`basket_terminal_latin_hypercube`): `4.121 ms` per run
 - `mc_metal_european_call_native` (`stepwise_paths_native_metal`): `1.531 ms` per run
 - `mc_metal_arithmetic_asian_call_native` (`arithmetic_asian_stepwise_native_metal`): `0.610 ms` per run

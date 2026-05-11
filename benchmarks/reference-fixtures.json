@@ -81,6 +81,33 @@
       ]
     },
     {
+      "fixture_id": "crr_american_put_atm_1y_reference",
+      "workload_id": "american_put_gbm_lsm",
+      "reference_source": "cox_ross_rubinstein_binomial_tree",
+      "runtime_reference_surface": "american_put_binomial_reference_price",
+      "comparison_metric": "absolute_price_error",
+      "parameters": {
+        "spot": 100.0,
+        "strike": 100.0,
+        "rate": 0.03,
+        "volatility": 0.2,
+        "maturity_years": 1.0,
+        "simulation_steps": 64,
+        "reference_steps": 512,
+        "exercise": "every_reference_step"
+      },
+      "expected": {
+        "crr_binomial_price": 6.741130672775123
+      },
+      "tolerance_guidance": {
+        "abs_error_release_gate": 0.75,
+        "stderr_units_recommended_max": 5.0
+      },
+      "notes": [
+        "This is a high-resolution CRR tree reference for the default American-put fixture, not a replacement for external market-library comparisons."
+      ]
+    },
+    {
       "fixture_id": "black_scholes_bermudan_put_atm_1y_lower_bound",
       "workload_id": "bermudan_put_gbm_lsm",
       "reference_source": "closed_form_black_scholes_merton_put_parity",
@@ -109,6 +136,44 @@
       },
       "notes": [
         "This is only a lower-bound sanity check for Bermudan puts, not a high-precision Bermudan reference price."
+      ]
+    },
+    {
+      "fixture_id": "crr_bermudan_put_atm_1y_quarterly_reference",
+      "workload_id": "bermudan_put_gbm_lsm",
+      "reference_source": "cox_ross_rubinstein_binomial_tree",
+      "runtime_reference_surface": "bermudan_put_binomial_reference_price",
+      "comparison_metric": "absolute_price_error",
+      "parameters": {
+        "spot": 100.0,
+        "strike": 100.0,
+        "rate": 0.03,
+        "volatility": 0.2,
+        "maturity_years": 1.0,
+        "simulation_steps": 64,
+        "reference_steps": 512,
+        "exercise_steps": [
+          16,
+          32,
+          48,
+          64
+        ],
+        "mapped_reference_exercise_steps": [
+          128,
+          256,
+          384,
+          512
+        ]
+      },
+      "expected": {
+        "crr_binomial_price": 6.655606560556989
+      },
+      "tolerance_guidance": {
+        "abs_error_release_gate": 0.75,
+        "stderr_units_recommended_max": 5.0
+      },
+      "notes": [
+        "Simulation exercise steps are mapped onto the denser reference tree by maturity-time fraction, then rounded and deduplicated."
       ]
     },
     {

@@ -121,6 +121,8 @@ The CPU runtime now exposes:
   - down-and-out call
   - two-asset basket call
   - fixed-strike lookback call
+  - American put LSM
+  - Bermudan put LSM
   - Heston European call
 
 The GPU backend layer now exposes:
@@ -209,30 +211,32 @@ Market landscape notes are in `docs/market-landscape.md`.
 
 From the latest release benchmark run:
 
-- fair step-wise Rust CPU European path: `12.845 ms`
-- step-wise Rust antithetic path: `29.021 ms`
-- step-wise Rust control-variate path: `13.099 ms`
-- arithmetic Asian Rust CPU path: `17.693 ms`
-- arithmetic Asian Rust CPU control-variate path: `17.670 ms`
-- arithmetic Asian Rust CPU MLMC path: `4.303 ms`
-- arithmetic Asian Rust CPU MLQMC path: `5.749 ms`
-- randomized Halton Rust CPU European path: `78.125 ms`
-- Latin hypercube Rust CPU European path: `63.870 ms`
-- scrambled Sobol Rust CPU European path: `78.774 ms`
-- scrambled Sobol Brownian bridge Rust CPU European path: `102.601 ms`
-- down-and-out Rust CPU path: `18.449 ms`
-- down-and-out Rust CPU control-variate path: `22.168 ms`
-- fixed-strike lookback Rust CPU path: `16.349 ms`
-- Heston European Rust CPU path: `26.461 ms`
-- basket Rust CPU pseudorandom path: `4.147 ms`
-- basket Rust CPU Latin hypercube path: `4.003 ms`
-- basket Rust CPU scrambled Sobol path: `7.002 ms`
-- European bump-and-revalue Delta error vs Black-Scholes: `0.000126` in `3.225 ms`
-- European pathwise Delta error vs Black-Scholes: `0.000281` in `1.523 ms`
-- European likelihood-ratio Delta error vs Black-Scholes: `0.002631` in `1.460 ms`
-- all-current-workload bump Greek breadth: `26` estimates in `216.317 ms`
-- specialized Rust terminal-distribution fast path: `0.524 ms`
-- native Metal European path on macOS: `1.495 ms`
+- fair step-wise Rust CPU European path: `12.416 ms`
+- step-wise Rust antithetic path: `27.450 ms`
+- step-wise Rust control-variate path: `13.233 ms`
+- arithmetic Asian Rust CPU path: `19.932 ms`
+- arithmetic Asian Rust CPU control-variate path: `18.927 ms`
+- arithmetic Asian Rust CPU MLMC path: `4.544 ms`
+- arithmetic Asian Rust CPU MLQMC path: `6.064 ms`
+- randomized Halton Rust CPU European path: `81.870 ms`
+- Latin hypercube Rust CPU European path: `67.374 ms`
+- scrambled Sobol Rust CPU European path: `83.418 ms`
+- scrambled Sobol Brownian bridge Rust CPU European path: `101.373 ms`
+- down-and-out Rust CPU path: `16.912 ms`
+- down-and-out Rust CPU control-variate path: `17.067 ms`
+- fixed-strike lookback Rust CPU path: `16.531 ms`
+- American put LSM Rust CPU path: `263.685 ms`, binomial-reference abs error `0.000323`
+- Bermudan put LSM Rust CPU path: `138.789 ms`, binomial-reference abs error `0.019098`
+- Heston European Rust CPU path: `25.977 ms`
+- basket Rust CPU pseudorandom path: `3.970 ms`
+- basket Rust CPU Latin hypercube path: `3.943 ms`
+- basket Rust CPU scrambled Sobol path: `6.976 ms`
+- European bump-and-revalue Delta error vs Black-Scholes: `0.000126` in `3.095 ms`
+- European pathwise Delta error vs Black-Scholes: `0.000281` in `1.496 ms`
+- European likelihood-ratio Delta error vs Black-Scholes: `0.002631` in `1.382 ms`
+- all-current-workload bump Greek breadth: `26` estimates in `193.818 ms`
+- specialized Rust terminal-distribution fast path: `0.610 ms`
+- native Metal European path on macOS: `1.472 ms`
 - native Metal European antithetic path on macOS: `0.985 ms`
 - native Metal European control-variate path on macOS: `0.987 ms`
 - native Metal arithmetic Asian path on macOS: `0.696 ms`

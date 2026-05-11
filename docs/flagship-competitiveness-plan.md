@@ -218,7 +218,8 @@ Deliverables:
 
 - `done` Add an American put Longstaff-Schwartz CPU reference surface with explicit method assumptions, benchmark row, and lower-bound reference fixture.
 - `done` Add Bermudan custom exercise-step schedules with reference fixtures and benchmark coverage.
-- `todo` Add high-precision American/Bermudan reference grids or external comparison lanes before making flagship accuracy claims.
+- `done` Add 512-step CRR binomial-tree American/Bermudan reference grids and benchmark quality rows.
+- `todo` Add external American/Bermudan comparison lanes before making broad market-library accuracy claims.
 - `todo` Add additional diffusion/model families such as jump diffusion, stochastic rates, or generic SDE templates after references are defined.
 - `todo` Add batch/portfolio parameter sweeps with reproducible manifests and benchmark coverage.
 - `todo` Add a broader scientific UQ surface beyond the first Gaussian analytic-mean workload.

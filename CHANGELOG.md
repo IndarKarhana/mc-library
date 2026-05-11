@@ -26,3 +26,5 @@
 - Added Phase 7.2 CPU Longstaff-Schwartz Bermudan-put pricing with custom
   exercise-step schedules, benchmark coverage, lower-bound reference fixture,
   and MCP-oriented agent-surface documentation.
+- Added CRR binomial-tree reference helpers and quality benchmark rows for
+  American and Bermudan put Longstaff-Schwartz accuracy audits.

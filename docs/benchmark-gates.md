@@ -19,6 +19,7 @@ The gates prevent obvious regressions while the codebase is still early.
 7. `mc_cpu_heston_black_scholes_limit_quality` must report finite non-negative `abs_error_vs_black_scholes` below `0.5` in compact benchmark runs.
 8. European Greek benchmarks for bump-and-revalue, pathwise, and likelihood-ratio estimators must report finite `abs_delta_error_vs_black_scholes` below `0.08`.
 9. `mc_cpu_all_workload_greeks_bump_rust` must report at least `24` Greek estimates across the current CPU workload families.
+10. `mc_cpu_american_put_lsm_binomial_reference_quality` and `mc_cpu_bermudan_put_lsm_binomial_reference_quality` must report finite `abs_error_vs_binomial_reference` below `0.75`.
 
 These thresholds are intentionally conservative for early development and should be tightened as functionality grows.
 

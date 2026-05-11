@@ -226,6 +226,8 @@ Status:
 - Phase 7.2 has CPU-reference Bermudan put pricing with custom exercise-step schedules through `bermudan_put_price_lsm_cpu`
 - benchmarked as `mc_cpu_american_put_lsm_rust`
 - benchmarked as `mc_cpu_bermudan_put_lsm_rust`
+- reference quality is benchmarked as `mc_cpu_american_put_lsm_binomial_reference_quality`
+  and `mc_cpu_bermudan_put_lsm_binomial_reference_quality`
 - listed in `monte_carlo_method_capabilities()` as `longstaff_schwartz_lsm`
 
 Why it matters:
@@ -238,7 +240,10 @@ Practical notes:
 
 - current support covers American puts and Bermudan custom-schedule puts under GBM with discrete exercise decisions at simulation steps
 - continuation values use Laguerre basis regression with degree 1-3
-- the committed reference is a European put lower bound, not a high-precision American or Bermudan option fixture
+- committed references include a European put lower bound and 512-step CRR
+  binomial-tree fixtures for the default American and quarterly Bermudan put
+  benchmark configurations
+- external market-library early-exercise comparison lanes are still pending
 - no dividend yield, calendar-date schedules, Greeks, or native GPU execution are exposed yet
 
 ### 0.9. Heston Stochastic-Volatility Pricing

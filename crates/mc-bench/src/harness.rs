@@ -5,8 +5,9 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use mc_core::{
     american_put_price_lsm_cpu, arithmetic_asian_call_price_mc_cpu,
     arithmetic_asian_call_price_mlmc_cpu, basket_call_price_mc_cpu, bermudan_put_price_lsm_cpu,
-    black_scholes_european_call_greeks, compare_arithmetic_asian_sampling_quality_cpu,
-    compare_basket_call_sampling_quality_cpu, compare_down_and_out_sampling_quality_cpu,
+    black_scholes_european_call_greeks, compare_american_put_lsm_binomial_reference_cpu,
+    compare_arithmetic_asian_sampling_quality_cpu, compare_basket_call_sampling_quality_cpu,
+    compare_bermudan_put_lsm_binomial_reference_cpu, compare_down_and_out_sampling_quality_cpu,
     compare_european_call_realized_error_cpu, compare_european_call_sampling_quality_cpu,
     compare_heston_black_scholes_limit_cpu, compare_lookback_call_sampling_quality_cpu,
     down_and_out_call_price_mc_cpu, european_call_greeks_cpu, european_call_price_mc_cpu_stepwise,
@@ -169,7 +170,9 @@ fn run_full_benchmarks() -> BenchmarkReport {
             "pricing_quality_lookback_latin_hypercube",
         ),
         benchmark_mc_rust_cpu_american_put_lsm(MC_REPEATS),
+        benchmark_mc_rust_cpu_american_put_lsm_binomial_reference(),
         benchmark_mc_rust_cpu_bermudan_put_lsm(MC_REPEATS),
+        benchmark_mc_rust_cpu_bermudan_put_lsm_binomial_reference(),
         benchmark_mc_rust_cpu_heston_european_stepwise(MC_REPEATS),
         benchmark_mc_rust_cpu_heston_black_scholes_limit(),
         benchmark_mc_rust_cpu_european_greeks(GreekEstimator::BumpAndRevalue),
@@ -428,7 +431,9 @@ fn run_compact_benchmarks_inner() -> BenchmarkReport {
         benchmark_mc_rust_cpu_down_and_out_stepwise(1),
         benchmark_mc_rust_cpu_lookback_stepwise(1),
         benchmark_mc_rust_cpu_american_put_lsm(1),
+        benchmark_mc_rust_cpu_american_put_lsm_binomial_reference(),
         benchmark_mc_rust_cpu_bermudan_put_lsm(1),
+        benchmark_mc_rust_cpu_bermudan_put_lsm_binomial_reference(),
         benchmark_mc_rust_cpu_heston_european_stepwise(1),
         benchmark_mc_rust_cpu_heston_black_scholes_limit(),
         benchmark_mc_rust_cpu_european_greeks(GreekEstimator::BumpAndRevalue),
@@ -524,11 +529,21 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
         .iter()
         .find(|r| r.benchmark_name == "mc_cpu_american_put_lsm_rust")
         .and_then(|r| r.runtime_ms());
+    let american_put_binomial_abs_error = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_american_put_lsm_binomial_reference_quality")
+        .and_then(|r| r.metric_value);
     let bermudan_put_lsm = report
         .results
         .iter()
         .find(|r| r.benchmark_name == "mc_cpu_bermudan_put_lsm_rust")
         .and_then(|r| r.runtime_ms());
+    let bermudan_put_binomial_abs_error = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_bermudan_put_lsm_binomial_reference_quality")
+        .and_then(|r| r.metric_value);
     let heston_cpu = report
         .results
         .iter()
@@ -734,14 +749,26 @@ pub fn build_competitiveness_plan(report: &BenchmarkReport) -> String {
     }
     if let Some(runtime) = american_put_lsm {
         out.push_str(&format!(
-            "- American put LSM CPU breadth is live (`{:.3} ms`) with European-put lower-bound validation.\n",
+            "- American put LSM CPU breadth is live (`{:.3} ms`) with CRR binomial-tree reference tracking.\n",
             runtime
+        ));
+    }
+    if let Some(abs_error) = american_put_binomial_abs_error {
+        out.push_str(&format!(
+            "- American put LSM binomial-tree quality is tracked with absolute price error `{:.6}` vs CRR reference.\n",
+            abs_error
         ));
     }
     if let Some(runtime) = bermudan_put_lsm {
         out.push_str(&format!(
             "- Bermudan put custom-schedule LSM CPU breadth is live (`{:.3} ms`) with explicit exercise-date metadata.\n",
             runtime
+        ));
+    }
+    if let Some(abs_error) = bermudan_put_binomial_abs_error {
+        out.push_str(&format!(
+            "- Bermudan put LSM binomial-tree quality is tracked with absolute price error `{:.6}` vs mapped CRR exercise schedule.\n",
+            abs_error
         ));
     }
     if let Some(runtime) = heston_cpu {
@@ -3459,6 +3486,75 @@ fn benchmark_mc_rust_cpu_bermudan_put_lsm(repeats: usize) -> BenchmarkResult {
         },
         metric_name: Some("price_estimate".to_string()),
         metric_value: Some(avg_price),
+    }
+}
+
+fn benchmark_mc_rust_cpu_american_put_lsm_binomial_reference() -> BenchmarkResult {
+    let cfg = AmericanPutConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        seed: 14_007,
+        ..AmericanPutConfig::default()
+    };
+    let reference_steps = 512;
+
+    let started = Instant::now();
+    let comparison = compare_american_put_lsm_binomial_reference_cpu(&cfg, reference_steps);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_american_put_lsm_binomial_reference_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::compare_american_put_lsm_binomial_reference_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("american_put_lsm_vs_crr_binomial_reference".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("abs_error_vs_binomial_reference".to_string()),
+        metric_value: Some(comparison.abs_error),
+    }
+}
+
+fn benchmark_mc_rust_cpu_bermudan_put_lsm_binomial_reference() -> BenchmarkResult {
+    let cfg = BermudanPutConfig {
+        n_paths: MC_PATHS,
+        n_steps: MC_STEPS,
+        exercise_steps: vec![16, 32, 48, 64],
+        seed: 14_008,
+        ..BermudanPutConfig::default()
+    };
+    let reference_steps = 512;
+
+    let started = Instant::now();
+    let comparison = compare_bermudan_put_lsm_binomial_reference_cpu(&cfg, reference_steps);
+    let runtime_ms = started.elapsed().as_secs_f64() * 1_000.0;
+
+    BenchmarkResult {
+        benchmark_name: "mc_cpu_bermudan_put_lsm_binomial_reference_quality".to_string(),
+        benchmark_version: "0.1".to_string(),
+        implementation: "mc-core::runtime::cpu::compare_bermudan_put_lsm_binomial_reference_cpu"
+            .to_string(),
+        backend: "cpu_native".to_string(),
+        methodology: Some("bermudan_put_lsm_vs_crr_binomial_reference".to_string()),
+        planner_mode: "n/a".to_string(),
+        iterations: 1,
+        total_runtime_ms: runtime_ms,
+        per_iteration_us: runtime_ms * 1_000.0,
+        throughput_per_sec: if runtime_ms == 0.0 {
+            cfg.n_paths as f64
+        } else {
+            cfg.n_paths as f64 / (runtime_ms / 1_000.0)
+        },
+        metric_name: Some("abs_error_vs_binomial_reference".to_string()),
+        metric_value: Some(comparison.abs_error),
     }
 }
 

@@ -224,6 +224,8 @@ fn phase2_reference_fixtures_are_registered() {
     for fixture_id in [
         "black_scholes_european_call_atm_1y",
         "black_scholes_european_call_greeks_atm_1y",
+        "crr_american_put_atm_1y_reference",
+        "crr_bermudan_put_atm_1y_quarterly_reference",
         "heston_black_scholes_limit_atm_1y",
         "gaussian_uncertainty_mean_reference",
     ] {
@@ -467,6 +469,16 @@ fn rust_mc_benchmark_is_present() {
     );
     assert_eq!(american_put.metric_name.as_deref(), Some("price_estimate"));
 
+    let american_put_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_american_put_lsm_binomial_reference_quality")
+        .expect("American put LSM binomial-reference quality benchmark should be present");
+    assert_eq!(
+        american_put_quality.metric_name.as_deref(),
+        Some("abs_error_vs_binomial_reference")
+    );
+
     let bermudan_put = report
         .results
         .iter()
@@ -478,6 +490,16 @@ fn rust_mc_benchmark_is_present() {
         Some("bermudan_put_longstaff_schwartz_laguerre_custom_schedule")
     );
     assert_eq!(bermudan_put.metric_name.as_deref(), Some("price_estimate"));
+
+    let bermudan_put_quality = report
+        .results
+        .iter()
+        .find(|r| r.benchmark_name == "mc_cpu_bermudan_put_lsm_binomial_reference_quality")
+        .expect("Bermudan put LSM binomial-reference quality benchmark should be present");
+    assert_eq!(
+        bermudan_put_quality.metric_name.as_deref(),
+        Some("abs_error_vs_binomial_reference")
+    );
 
     let heston = report
         .results
